@@ -12,7 +12,7 @@ import {
   generateNewClientId,
   createID,
   cleanupYTextAfterTransaction,
-  UpdateEncoderV1, UpdateEncoderV2, GC, StructStore, AbstractType, AbstractStruct, YEvent, Doc // eslint-disable-line
+  UpdateEncoderV1, UpdateEncoderV2, GC, StructStore, AbstractType, AbstractStruct, YEvent, NanoBlock, NanoStore, // eslint-disable-line
 } from '../internals.js'
 
 import * as map from 'lib0/map'
@@ -46,17 +46,18 @@ import { callAll } from 'lib0/function'
  * @public
  */
 export class Transaction {
+  // TODO: Accept a storeTransaction as an argument
   /**
-   * @param {Doc} doc
+   * @param {NanoBlock} block
    * @param {any} origin
    * @param {boolean} local
    */
-  constructor (doc, origin, local) {
+  constructor (block, origin, local) {
     /**
      * The Yjs instance.
-     * @type {Doc}
+     * @type {NanoBlock}
      */
-    this.doc = doc
+    this.block = block
     /**
      * Describes the set of deleted items by ids
      * @type {DeleteSet}
@@ -66,7 +67,7 @@ export class Transaction {
      * Holds the state before the transaction started.
      * @type {Map<Number,Number>}
      */
-    this.beforeState = getStateVector(doc.store)
+    this.beforeState = getStateVector(block.structStore)
     /**
      * Holds the state after the transaction.
      * @type {Map<Number,Number>}
@@ -104,20 +105,24 @@ export class Transaction {
      */
     this.local = local
     /**
-     * @type {Set<Doc>}
+     * @type {StoreTransaction | null}
      */
-    this.subdocsAdded = new Set()
-    /**
-     * @type {Set<Doc>}
-     */
-    this.subdocsRemoved = new Set()
-    /**
-     * @type {Set<Doc>}
-     */
-    this.subdocsLoaded = new Set()
-    /**
-     * @type {boolean}
-     */
+    this.storeTransaction = null
+    // /**
+    //  * @type {Set<Doc>}
+    //  */
+    // this.subdocsAdded = new Set()
+    // /**
+    //  * @type {Set<Doc>}
+    //  */
+    // this.subdocsRemoved = new Set()
+    // /**
+    //  * @type {Set<Doc>}
+    //  */
+    // this.subdocsLoaded = new Set()
+    // /**
+    //  * @type {boolean}
+    //  */
     this._needFormattingCleanup = false
   }
 }
@@ -144,8 +149,8 @@ export const writeUpdateMessageFromTransaction = (encoder, transaction) => {
  * @function
  */
 export const nextID = transaction => {
-  const y = transaction.doc
-  return createID(y.clientID, getState(y.store, y.clientID))
+  const block = transaction.block
+  return createID(block.clientID, getState(block.structStore, block.clientID))
 }
 
 /**
@@ -253,6 +258,7 @@ export const tryGc = (ds, store, gcFilter) => {
   tryMergeDeleteSet(ds, store)
 }
 
+// FIXME: This can be replaced with TransactionSet of NanoStore
 /**
  * @param {Array<Transaction>} transactionCleanups
  * @param {number} i
@@ -260,14 +266,14 @@ export const tryGc = (ds, store, gcFilter) => {
 const cleanupTransactions = (transactionCleanups, i) => {
   if (i < transactionCleanups.length) {
     const transaction = transactionCleanups[i]
-    const doc = transaction.doc
-    const store = doc.store
+    const block = transaction.block
+    const structStore = block.structStore
     const ds = transaction.deleteSet
     const mergeStructs = transaction._mergeStructs
     try {
       sortAndMergeDeleteSet(ds)
-      transaction.afterState = getStateVector(transaction.doc.store)
-      doc.emit('beforeObserverCalls', [transaction, doc])
+      transaction.afterState = getStateVector(transaction.block.structStore)
+      block.emit('beforeObserverCalls', [transaction, block])
       /**
        * An array of event callbacks.
        *
@@ -303,13 +309,17 @@ const cleanupTransactions = (transactionCleanups, i) => {
             // sort events by path length so that top-level events are fired first.
             events
               .sort((event1, event2) => event1.path.length - event2.path.length)
+            // TODO: Register root observers here
+            if (type.block && type.block.isRoot && type.block.store && transaction.storeTransaction) {
+              // transaction.storeTransaction.set
+            }
             // We don't need to check for events.length
             // because we know it has at least one element
             callEventHandlerListeners(type._dEH, events, transaction)
           }
         })
       })
-      fs.push(() => doc.emit('afterTransaction', [transaction, doc]))
+      fs.push(() => block.emit('afterTransaction', [transaction, block]))
       callAll(fs, [])
       if (transaction._needFormattingCleanup) {
         cleanupYTextAfterTransaction(transaction)
@@ -317,16 +327,16 @@ const cleanupTransactions = (transactionCleanups, i) => {
     } finally {
       // Replace deleted items with ItemDeleted / GC.
       // This is where content is actually remove from the Yjs Doc.
-      if (doc.gc) {
-        tryGcDeleteSet(ds, store, doc.gcFilter)
+      if (block.gc) {
+        tryGcDeleteSet(ds, structStore, block.gcFilter)
       }
-      tryMergeDeleteSet(ds, store)
+      tryMergeDeleteSet(ds, structStore)
 
       // on all affected store.clients props, try to merge
       transaction.afterState.forEach((clock, client) => {
         const beforeClock = transaction.beforeState.get(client) || 0
         if (beforeClock !== clock) {
-          const structs = /** @type {Array<GC|Item>} */ (store.clients.get(client))
+          const structs = /** @type {Array<GC|Item>} */ (structStore.clients.get(client))
           // we iterate from right to left so we can safely remove entries
           const firstChangePos = math.max(findIndexSS(structs, beforeClock), 1)
           for (let i = structs.length - 1; i >= firstChangePos;) {
@@ -339,7 +349,7 @@ const cleanupTransactions = (transactionCleanups, i) => {
       //        but at the moment DS does not handle duplicates
       for (let i = mergeStructs.length - 1; i >= 0; i--) {
         const { client, clock } = mergeStructs[i].id
-        const structs = /** @type {Array<GC|Item>} */ (store.clients.get(client))
+        const structs = /** @type {Array<GC|Item>} */ (structStore.clients.get(client))
         const replacedStructPos = findIndexSS(structs, clock)
         if (replacedStructPos + 1 < structs.length) {
           if (tryToMergeWithLefts(structs, replacedStructPos + 1) > 1) {
@@ -350,43 +360,43 @@ const cleanupTransactions = (transactionCleanups, i) => {
           tryToMergeWithLefts(structs, replacedStructPos)
         }
       }
-      if (!transaction.local && transaction.afterState.get(doc.clientID) !== transaction.beforeState.get(doc.clientID)) {
+      if (!transaction.local && transaction.afterState.get(block.clientID) !== transaction.beforeState.get(block.clientID)) {
         logging.print(logging.ORANGE, logging.BOLD, '[yjs] ', logging.UNBOLD, logging.RED, 'Changed the client-id because another client seems to be using it.')
-        doc.clientID = generateNewClientId()
+        block.clientID = generateNewClientId()
       }
       // @todo Merge all the transactions into one and provide send the data as a single update message
-      doc.emit('afterTransactionCleanup', [transaction, doc])
-      if (doc._observers.has('update')) {
+      block.emit('afterTransactionCleanup', [transaction, block])
+      if (block._observers.has('update')) {
         const encoder = new UpdateEncoderV1()
         const hasContent = writeUpdateMessageFromTransaction(encoder, transaction)
         if (hasContent) {
-          doc.emit('update', [encoder.toUint8Array(), transaction.origin, doc, transaction])
+          block.emit('update', [encoder.toUint8Array(), transaction.origin, block, transaction])
         }
       }
-      if (doc._observers.has('updateV2')) {
+      if (block._observers.has('updateV2')) {
         const encoder = new UpdateEncoderV2()
         const hasContent = writeUpdateMessageFromTransaction(encoder, transaction)
         if (hasContent) {
-          doc.emit('updateV2', [encoder.toUint8Array(), transaction.origin, doc, transaction])
+          block.emit('updateV2', [encoder.toUint8Array(), transaction.origin, block, transaction])
         }
       }
-      const { subdocsAdded, subdocsLoaded, subdocsRemoved } = transaction
-      if (subdocsAdded.size > 0 || subdocsRemoved.size > 0 || subdocsLoaded.size > 0) {
-        subdocsAdded.forEach(subdoc => {
-          subdoc.clientID = doc.clientID
-          if (subdoc.collectionid == null) {
-            subdoc.collectionid = doc.collectionid
-          }
-          doc.subdocs.add(subdoc)
-        })
-        subdocsRemoved.forEach(subdoc => doc.subdocs.delete(subdoc))
-        doc.emit('subdocs', [{ loaded: subdocsLoaded, added: subdocsAdded, removed: subdocsRemoved }, doc, transaction])
-        subdocsRemoved.forEach(subdoc => subdoc.destroy())
-      }
+      // const { subdocsAdded, subdocsLoaded, subdocsRemoved } = transaction
+      // if (subdocsAdded.size > 0 || subdocsRemoved.size > 0 || subdocsLoaded.size > 0) {
+      //   subdocsAdded.forEach(subdoc => {
+      //     subdoc.clientID = store.clientID
+      //     if (subdoc.collectionid == null) {
+      //       subdoc.collectionid = store.collectionid
+      //     }
+      //     store.subdocs.add(subdoc)
+      //   })
+      //   subdocsRemoved.forEach(subdoc => store.subdocs.delete(subdoc))
+      //   store.emit('subdocs', [{ loaded: subdocsLoaded, added: subdocsAdded, removed: subdocsRemoved }, store, transaction])
+      //   subdocsRemoved.forEach(subdoc => subdoc.destroy())
+      // }
 
       if (transactionCleanups.length <= i + 1) {
-        doc._transactionCleanups = []
-        doc.emit('afterAllTransactions', [doc, transactionCleanups])
+        block._transactionCleanups = []
+        block.emit('afterAllTransactions', [block, transactionCleanups])
       } else {
         cleanupTransactions(transactionCleanups, i + 1)
       }
@@ -398,35 +408,50 @@ const cleanupTransactions = (transactionCleanups, i) => {
  * Implements the functionality of `y.transact(()=>{..})`
  *
  * @template T
- * @param {Doc} doc
+ * @param {NanoBlock} block
  * @param {function(Transaction):T} f
  * @param {any} [origin=true]
  * @return {T}
  *
  * @function
  */
-export const transact = (doc, f, origin = null, local = true) => {
-  const transactionCleanups = doc._transactionCleanups
+export const transact = (block, f, origin = null, local = true) => {
+  if (block.store) {
+    return transactInStore(block.store, (storeTr) => {
+      const transactionCleanups = block._transactionCleanups
+      if (block._transaction === null) {
+        block._transaction = new Transaction(block, origin, local)
+        transactionCleanups.push(block._transaction)
+        if (transactionCleanups.length === 1) {
+          block.emit('beforeAllTransactions', [block])
+        }
+        block.emit('beforeTransaction', [block._transaction, block])
+      }
+      return f(block._transaction)
+    }, origin, local)
+  }
+
+  const transactionCleanups = block._transactionCleanups
   let initialCall = false
   /**
    * @type {any}
    */
   let result = null
-  if (doc._transaction === null) {
+  if (block._transaction === null) {
     initialCall = true
-    doc._transaction = new Transaction(doc, origin, local)
-    transactionCleanups.push(doc._transaction)
+    block._transaction = new Transaction(block, origin, local)
+    transactionCleanups.push(block._transaction)
     if (transactionCleanups.length === 1) {
-      doc.emit('beforeAllTransactions', [doc])
+      block.emit('beforeAllTransactions', [block])
     }
-    doc.emit('beforeTransaction', [doc._transaction, doc])
+    block.emit('beforeTransaction', [block._transaction, block])
   }
   try {
-    result = f(doc._transaction)
+    result = f(block._transaction)
   } finally {
     if (initialCall) {
-      const finishCleanup = doc._transaction === transactionCleanups[0]
-      doc._transaction = null
+      const finishCleanup = block._transaction === transactionCleanups[0]
+      block._transaction = null
       if (finishCleanup) {
         // The first transaction ended, now process observer calls.
         // Observer call may create new transactions for which we need to call the observers and do cleanup.
@@ -441,4 +466,261 @@ export const transact = (doc, f, origin = null, local = true) => {
     }
   }
   return result
+}
+
+/**
+ * Implements the functionality of `store.transact(()=>{..})`
+ *
+ * @template T
+ * @param {NanoStore} store
+ * @param {function(StoreTransaction):T} f
+ * @param {any} [origin=true]
+ * @return {T}
+ *
+ * @function
+ */
+export const transactInStore = (store, f, origin = null, local = true) => {
+  const transactionCleanups = store._transactionCleanups
+  let initialCall = false
+
+  if (store._transaction === null) {
+    initialCall = true
+    store._transaction = new StoreTransaction(store, origin, local)
+    transactionCleanups.push(store._transaction)
+    if (transactionCleanups.length === 1) {
+      store.emit('beforeAllTransactions', [store])
+    }
+    store.emit('beforeTransaction', [store._transaction, store])
+  }
+  let result = null
+  try {
+    result = f(store._transaction)
+  } finally {
+    if (initialCall) {
+      const finishCleanup = store._transaction === transactionCleanups[0]
+      store._transaction = null
+      if (finishCleanup) {
+        let i = 0
+        while (i < transactionCleanups.length) {
+          const transaction = transactionCleanups[i]
+          // これ以降に呼ばれた変更は、新しい transaction になる
+          transaction.blockTransactions.forEach((_, tr) => {
+            tr.block._transaction = null
+          })
+          // At first, call all transaction observers.
+          callBlockTransactionsObservers(transaction)
+          // Next, call root observers
+          callRootObservers(transaction)
+          // Then, Try GC And Merge
+          cleanupConsumedTransaction(transaction)
+          // Finally call next cleanups
+          i++
+        }
+        store.emit('afterAllTransactions', [store, transactionCleanups])
+        store._transactionCleanups = []
+      }
+    }
+  }
+  return result
+}
+
+/**
+ * Cleanup all transactions that are not currently in progress.
+ *
+ * @param {StoreTransaction} storeTransaction
+ */
+const callBlockTransactionsObservers = (storeTransaction) => {
+  storeTransaction.blockTransactions.forEach((_, transaction) => {
+    try {
+      consumeBlockTransactionObservers(transaction)
+    } catch (e) {
+      console.trace(e)
+    }
+  })
+}
+
+/**
+ * Consume block transaction observers
+ * @param {Transaction} transaction
+ */
+const consumeBlockTransactionObservers = (transaction) => {
+  const block = transaction.block
+
+  const ds = transaction.deleteSet
+  sortAndMergeDeleteSet(ds)
+  transaction.afterState = getStateVector(transaction.block.structStore)
+  block.emit('beforeObserverCalls', [transaction, block])
+  /**
+   * An array of event callbacks.
+   *
+   * Each callback is called even if the other ones throw errors.
+   *
+   * @type {Array<function():void>}
+   */
+  const fs = []
+  // observe events on changed types
+  transaction.changed.forEach((subs, itemtype) =>
+    fs.push(() => {
+      if (itemtype._item === null || !itemtype._item.deleted) {
+        itemtype._callObserver(transaction, subs)
+      }
+    })
+  )
+  fs.push(() => {
+    // deep observe events
+    transaction.changedParentTypes.forEach((events, type) => {
+      // We need to think about the possibility that the user transforms the
+      // Y.Doc in the event.
+      if (type._dEH.l.length > 0 && (type._item === null || !type._item.deleted)) {
+        events = events
+          .filter(event =>
+            event.target._item === null || !event.target._item.deleted
+          )
+        events
+          .forEach(event => {
+            event.currentTarget = type
+            // path is relative to the current target
+            event._path = null
+          })
+        // sort events by path length so that top-level events are fired first.
+        events
+          .sort((event1, event2) => event1.path.length - event2.path.length)
+        // TODO: Register root observers here
+        if (type.block && type.block.isRoot && type.block.store && transaction.storeTransaction) {
+          // transaction.storeTransaction.set
+        }
+        // We don't need to check for events.length
+        // because we know it has at least one element
+        callEventHandlerListeners(type._dEH, events, transaction)
+
+        // TODO: ここで root block に対してのイベントを追加する
+        if (transaction.storeTransaction && type.block) {
+          // FIXME: type.block じゃなくて、type.block.root を使うべき
+          map.setIfUndefined(transaction.storeTransaction.rootBlockEvents, type.block, () => /** @type {YEvent<any>[]} */([])).push(...events)
+        }
+      }
+    })
+  })
+  fs.push(() => block.emit('afterTransaction', [transaction, block]))
+  callAll(fs, [])
+}
+
+/**
+ * Call root observers
+ * @param {StoreTransaction} storeTransaction
+ */
+const callRootObservers = (storeTransaction) => {
+  // Gather changed root block types
+  storeTransaction.rootBlockEvents.forEach((events, block) => {
+    // TODO: Call root observers
+  })
+}
+
+/**
+ * Try GC and cleanup
+ * @param {StoreTransaction} storeTransaction
+ */
+const cleanupConsumedTransaction = (storeTransaction) => {
+  storeTransaction.blockTransactions.forEach((_, transaction) => {
+    if (transaction._needFormattingCleanup) {
+      cleanupYTextAfterTransaction(transaction)
+    }
+
+    const block = transaction.block
+    const structStore = block.structStore
+    const ds = transaction.deleteSet
+    const mergeStructs = transaction._mergeStructs
+    // Replace deleted items with ItemDeleted / GC.
+    // This is where content is actually remove from the Yjs Doc.
+    if (block.gc) {
+      tryGcDeleteSet(ds, structStore, block.gcFilter)
+    }
+    tryMergeDeleteSet(ds, structStore)
+
+    // on all affected store.clients props, try to merge
+    transaction.afterState.forEach((clock, client) => {
+      const beforeClock = transaction.beforeState.get(client) || 0
+      if (beforeClock !== clock) {
+        const structs = /** @type {Array<GC|Item>} */ (structStore.clients.get(client))
+        // we iterate from right to left so we can safely remove entries
+        const firstChangePos = math.max(findIndexSS(structs, beforeClock), 1)
+        for (let i = structs.length - 1; i >= firstChangePos;) {
+          i -= 1 + tryToMergeWithLefts(structs, i)
+        }
+      }
+    })
+    // try to merge mergeStructs
+    // @todo: it makes more sense to transform mergeStructs to a DS, sort it, and merge from right to left
+    //        but at the moment DS does not handle duplicates
+    for (let i = mergeStructs.length - 1; i >= 0; i--) {
+      const { client, clock } = mergeStructs[i].id
+      const structs = /** @type {Array<GC|Item>} */ (structStore.clients.get(client))
+      const replacedStructPos = findIndexSS(structs, clock)
+      if (replacedStructPos + 1 < structs.length) {
+        if (tryToMergeWithLefts(structs, replacedStructPos + 1) > 1) {
+          continue // no need to perform next check, both are already merged
+        }
+      }
+      if (replacedStructPos > 0) {
+        tryToMergeWithLefts(structs, replacedStructPos)
+      }
+    }
+    if (!transaction.local && transaction.afterState.get(block.clientID) !== transaction.beforeState.get(block.clientID)) {
+      logging.print(logging.ORANGE, logging.BOLD, '[yjs] ', logging.UNBOLD, logging.RED, 'Changed the client-id because another client seems to be using it.')
+      block.clientID = generateNewClientId()
+    }
+    // @todo Merge all the transactions into one and provide send the data as a single update message
+    block.emit('afterTransactionCleanup', [transaction, block])
+    if (block._observers.has('update')) {
+      const encoder = new UpdateEncoderV1()
+      const hasContent = writeUpdateMessageFromTransaction(encoder, transaction)
+      if (hasContent) {
+        block.emit('update', [encoder.toUint8Array(), transaction.origin, block, transaction])
+      }
+    }
+    if (block._observers.has('updateV2')) {
+      const encoder = new UpdateEncoderV2()
+      const hasContent = writeUpdateMessageFromTransaction(encoder, transaction)
+      if (hasContent) {
+        block.emit('updateV2', [encoder.toUint8Array(), transaction.origin, block, transaction])
+      }
+    }
+    // const { subdocsAdded, subdocsLoaded, subdocsRemoved } = transaction
+    // if (subdocsAdded.size > 0 || subdocsRemoved.size > 0 || subdocsLoaded.size > 0) {
+    //   subdocsAdded.forEach(subdoc => {
+    //     subdoc.clientID = store.clientID
+    //     if (subdoc.collectionid == null) {
+    //       subdoc.collectionid = store.collectionid
+    //     }
+    //     store.subdocs.add(subdoc)
+    //   })
+    //   subdocsRemoved.forEach(subdoc => store.subdocs.delete(subdoc))
+    //   store.emit('subdocs', [{ loaded: subdocsLoaded, added: subdocsAdded, removed: subdocsRemoved }, store, transaction])
+    //   subdocsRemoved.forEach(subdoc => subdoc.destroy())
+    // }
+  })
+}
+
+/**
+ * StoreTransaction is a collection of (block) transactions.
+ */
+export class StoreTransaction {
+  /**
+   * @param {NanoStore} store
+   * @param {any} origin
+   * @param {boolean} local
+   */
+  constructor (store, origin, local) {
+    this.store = store
+    this.origin = origin
+    this.local = local
+    /**
+     * @type {Map<Transaction, unknown>}
+     */
+    this.blockTransactions = new Map()
+    /**
+     * @type {Map<NanoBlock, YEvent<any>[]>}
+     */
+    this.rootBlockEvents = new Map()
+  }
 }
