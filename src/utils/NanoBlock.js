@@ -1,6 +1,6 @@
 import {
   StructStore,
-  AbstractType, Item, NanoStore, Transaction, YArray, YMap, YText, YXmlElement, YXmlFragment, YXmlText, // eslint-disable-line
+  AbstractType, Item, NanoStore, Transaction, YArray, YMap, YText, YXmlElement, YXmlFragment, YXmlText, transact, // eslint-disable-line
 } from '../internals.js'
 import * as random from 'lib0/random'
 import { Observable } from 'lib0/observable'
@@ -113,14 +113,34 @@ export class NanoBlock extends Observable {
 
   /**
    * @template {AbstractType<any>} T
-   * @returns T
+   * @param {string} _name
+   * @returns {T}
    */
-  getType () {
+  getType (_name = '') {
+    // @ts-ignore
     if (this._type) return this._type
     // Different from Doc, we knows what the type is before integration
     this._type = createType(this.blockType)
     this._type._integrate(this, null)
+    // @ts-ignore
     return this._type
+  }
+
+  /**
+   * Changes that happen inside of a transaction are bundled. This means that
+   * the observer fires _after_ the transaction is finished and that all changes
+   * that happened inside of the transaction are sent as one message to the
+   * other peers.
+   *
+   * @template T
+   * @param {function(Transaction):T} f The function that should be executed as a transaction
+   * @param {any} [origin] Origin of who started the transaction. Will be stored on transaction.origin
+   * @return T
+   *
+   * @public
+   */
+  transact (f, origin = null) {
+    return transact(this, f, origin)
   }
 }
 

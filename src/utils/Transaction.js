@@ -422,6 +422,7 @@ export const transact = (block, f, origin = null, local = true) => {
       if (block._transaction === null) {
         block._transaction = new Transaction(block, origin, local)
         transactionCleanups.push(block._transaction)
+        storeTr.blockTransactions.set(block._transaction, block)
         if (transactionCleanups.length === 1) {
           block.emit('beforeAllTransactions', [block])
         }

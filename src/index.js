@@ -2,6 +2,8 @@
 
 export {
   Doc,
+  NanoBlock,
+  NanoStore,
   Transaction,
   YArray as Array,
   YMap as Map,

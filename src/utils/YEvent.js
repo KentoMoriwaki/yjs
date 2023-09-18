@@ -87,7 +87,7 @@ export class YEvent {
    */
   get keys () {
     if (this._keys === null) {
-      if (this.transaction.doc._transactionCleanups.length === 0) {
+      if (this.transaction.block._transactionCleanups.length === 0) {
         throw error.create(errorComputeChanges)
       }
       const keys = new Map()
@@ -173,7 +173,7 @@ export class YEvent {
   get changes () {
     let changes = this._changes
     if (changes === null) {
-      if (this.transaction.doc._transactionCleanups.length === 0) {
+      if (this.transaction.block._transactionCleanups.length === 0) {
         throw error.create(errorComputeChanges)
       }
       const target = this.target

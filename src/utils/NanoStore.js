@@ -1,9 +1,9 @@
 import {
-  AbstractType,
-  Item, NanoBlock, StoreTransaction // eslint-disable-line
+  NanoBlock,
+  generateNewClientId,
+  Item, StoreTransaction // eslint-disable-line
 } from '../internals.js'
 import { Observable } from 'lib0/observable'
-import { generateNewClientId } from './NanoBlock.js'
 
 /**
  * @typedef {string} CollectionName
@@ -65,45 +65,30 @@ export class NanoStore extends Observable {
   }
 
   /**
-   * @template {AbstractType<any>} T
    * @param {CollectionName} collectionName
    * @param {DocumentId} documentId
    * @param {FieldName} fieldName
-   * @param {new () => T} TypeConstructor
-   * @returns {T} The root type
+   * @param {import("./NanoBlock.js").BlockType} blockType
+   * @returns {NanoBlock} The root type
    */
-  getRoot (collectionName, documentId, fieldName, TypeConstructor) {
+  getRoot (collectionName, documentId, fieldName, blockType) {
     let block = this.getRootBlock(collectionName, documentId, fieldName)
-    const owner = createOwnerId(collectionName, documentId, fieldName)
-    if (!block) {
-      const type = new TypeConstructor()
-      block = this.setRootBlock(owner, type)
+    if (block === undefined) {
+      block = this.setRootBlock(
+        createOwnerId(collectionName, documentId, fieldName),
+        blockType
+      )
     }
-    const type = block.type
-    const Constr = type.constructor
-    if (TypeConstructor !== AbstractType && Constr !== TypeConstructor) {
-      if (Constr === AbstractType) {
-        const concreteType = new TypeConstructor()
-        castToConcreteType(type, concreteType)
-        this.setRootBlock(owner, concreteType)
-        // FIXME: Integrate concreteType to this store
-      } else {
-        throw new Error(
-          `Type with the name ${collectionName}/${documentId}/${fieldName} has already been defined with a different constructor`
-        )
-      }
-    }
-    // @ts-ignore
-    return type
+    return block
   }
 
   /**
    * @private
-   * @param {OwnerId} owner
-   * @param {AbstractType<any>} rootType
+   * @param {import("./NanoBlock.js").OwnerId} owner
+   * @param {import("./NanoBlock.js").BlockType} blockType
    * @returns {NanoBlock}
    */
-  setRootBlock (owner, rootType) {
+  setRootBlock (owner, blockType) {
     let collections = this.roots.get(owner.collectionName)
     if (!collections) {
       collections = new Map()
@@ -116,12 +101,12 @@ export class NanoStore extends Observable {
     }
     let block = documents.get(owner.fieldName)
     if (!block) {
-      block = {
-        root: true,
-        id: null,
-        owner,
-        type: rootType
-      }
+      // FIXME: Use a better id
+      block = new NanoBlock({
+        type: blockType,
+        store: this,
+        isRoot: true
+      })
       documents.set(owner.fieldName, block)
     }
     return block
@@ -131,7 +116,7 @@ export class NanoStore extends Observable {
    * @param {CollectionName} collectionName
    * @param {DocumentId} documentId
    * @param {FieldName} fieldName
-   * @returns {RootBlock | undefined} The root type
+   * @returns {NanoBlock | undefined} The root type
    * @private
    */
   getRootBlock (collectionName, documentId, fieldName) {
@@ -143,7 +128,7 @@ export class NanoStore extends Observable {
  * @param {CollectionName} collectionName
  * @param {DocumentId} documentId
  * @param {FieldName} fieldName
- * @returns {OwnerId}
+ * @returns {import("./NanoBlock.js").OwnerId}
  */
 function createOwnerId (collectionName, documentId, fieldName) {
   return {
@@ -151,24 +136,4 @@ function createOwnerId (collectionName, documentId, fieldName) {
     documentId,
     fieldName
   }
-}
-
-/**
- * @param {AbstractType<any>} abstractType
- * @param {AbstractType<any>} concreteType
- */
-function castToConcreteType (abstractType, concreteType) {
-  concreteType._map = abstractType._map
-  abstractType._map.forEach(
-    /** @param {Item?} n */ (n) => {
-      for (; n !== null; n = n.left) {
-        n.parent = concreteType
-      }
-    }
-  )
-  concreteType._start = abstractType._start
-  for (let n = concreteType._start; n !== null; n = n.right) {
-    n.parent = concreteType
-  }
-  concreteType._length = abstractType._length
 }
