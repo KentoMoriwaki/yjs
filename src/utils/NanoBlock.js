@@ -11,17 +11,6 @@ import { Observable } from 'lib0/observable'
  *   documentId: string;
  *   fieldName: string;
  * }} OwnerId
- * @typedef {{
- *   root: boolean;
- *   id: string | null;
- *   owner: OwnerId;
- *   type: AbstractType<any>;
- * }} RootBlock
- * @typedef {{
- *   root: boolean;
- *   id: string;
- *   type: AbstractType<any>;
- * }} NonRootBlock
  */
 
 export const generateNewClientId = random.uint32
@@ -141,6 +130,10 @@ export class NanoBlock extends Observable {
    */
   transact (f, origin = null) {
     return transact(this, f, origin)
+  }
+
+  isUnresolvedRoot () {
+    return this.isRoot && !this.id.startsWith('@///')
   }
 }
 

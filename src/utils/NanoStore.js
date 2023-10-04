@@ -101,13 +101,15 @@ export class NanoStore extends Observable {
     }
     let block = documents.get(owner.fieldName)
     if (!block) {
-      // FIXME: Use a better id
+      const id = getRootId(owner)
       block = new NanoBlock({
-        type: blockType,
         store: this,
-        isRoot: true
+        id,
+        isRoot: true,
+        type: blockType
       })
       documents.set(owner.fieldName, block)
+      this.blocks.set(id, block)
     }
     return block
   }
@@ -121,6 +123,33 @@ export class NanoStore extends Observable {
    */
   getRootBlock (collectionName, documentId, fieldName) {
     return this.roots.get(collectionName)?.get(documentId)?.get(fieldName)
+  }
+
+  /**
+   * @param {string} id
+   * @returns {NanoBlock | undefined}
+   */
+  getBlock (id) {
+    return this.blocks.get(id)
+  }
+
+  /**
+   * Create block
+   * @param {import("./NanoBlock.js").BlockType} type
+   */
+  createBlock (type) {
+    const block = new NanoBlock({
+      store: this,
+      type
+    })
+    this.blocks.set(block.id, block)
+    return block
+  }
+
+  destroy () {
+    this.emit('destroy', [this])
+
+    super.destroy()
   }
 }
 
@@ -136,4 +165,13 @@ function createOwnerId (collectionName, documentId, fieldName) {
     documentId,
     fieldName
   }
+}
+
+/**
+ *
+ * @param {import("./NanoBlock.js").OwnerId} owner
+ * @returns {string}
+ */
+const getRootId = (owner) => {
+  return `@///${owner.collectionName}///${owner.documentId}///${owner.fieldName}`
 }

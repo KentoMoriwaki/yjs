@@ -78,6 +78,7 @@ export {
   PermanentUserData, // @TODO experimental
   tryGc,
   transact,
+  transactInStore,
   AbstractConnector,
   logType,
   mergeUpdates,

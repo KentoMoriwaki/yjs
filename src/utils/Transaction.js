@@ -420,7 +420,7 @@ export const transact = (block, f, origin = null, local = true) => {
     return transactInStore(block.store, (storeTr) => {
       const transactionCleanups = block._transactionCleanups
       if (block._transaction === null) {
-        block._transaction = new Transaction(block, origin, local)
+        block._transaction = new Transaction(block, storeTr.origin, storeTr.local)
         transactionCleanups.push(block._transaction)
         storeTr.blockTransactions.set(block._transaction, block)
         if (transactionCleanups.length === 1) {
@@ -514,6 +514,8 @@ export const transactInStore = (store, f, origin = null, local = true) => {
           callRootObservers(transaction)
           // Then, Try GC And Merge
           cleanupConsumedTransaction(transaction)
+          // Emit store transaction cleanup events
+          emitStoreTransactionCleanupEvents(transaction)
           // Finally call next cleanups
           i++
         }
@@ -672,20 +674,21 @@ const cleanupConsumedTransaction = (storeTransaction) => {
     }
     // @todo Merge all the transactions into one and provide send the data as a single update message
     block.emit('afterTransactionCleanup', [transaction, block])
-    if (block._observers.has('update')) {
-      const encoder = new UpdateEncoderV1()
-      const hasContent = writeUpdateMessageFromTransaction(encoder, transaction)
-      if (hasContent) {
-        block.emit('update', [encoder.toUint8Array(), transaction.origin, block, transaction])
-      }
-    }
-    if (block._observers.has('updateV2')) {
-      const encoder = new UpdateEncoderV2()
-      const hasContent = writeUpdateMessageFromTransaction(encoder, transaction)
-      if (hasContent) {
-        block.emit('updateV2', [encoder.toUint8Array(), transaction.origin, block, transaction])
-      }
-    }
+    // StoreTransaction の場合は、個別 block の update イベントは発火しない
+    // if (block._observers.has('update')) {
+    //   const encoder = new UpdateEncoderV1()
+    //   const hasContent = writeUpdateMessageFromTransaction(encoder, transaction)
+    //   if (hasContent) {
+    //     block.emit('update', [encoder.toUint8Array(), transaction.origin, block, transaction])
+    //   }
+    // }
+    // if (block._observers.has('updateV2')) {
+    //   const encoder = new UpdateEncoderV2()
+    //   const hasContent = writeUpdateMessageFromTransaction(encoder, transaction)
+    //   if (hasContent) {
+    //     block.emit('updateV2', [encoder.toUint8Array(), transaction.origin, block, transaction])
+    //   }
+    // }
     // const { subdocsAdded, subdocsLoaded, subdocsRemoved } = transaction
     // if (subdocsAdded.size > 0 || subdocsRemoved.size > 0 || subdocsLoaded.size > 0) {
     //   subdocsAdded.forEach(subdoc => {
@@ -700,6 +703,27 @@ const cleanupConsumedTransaction = (storeTransaction) => {
     //   subdocsRemoved.forEach(subdoc => subdoc.destroy())
     // }
   })
+}
+
+/**
+ *
+ * @param {StoreTransaction} storeTransaction
+ */
+function emitStoreTransactionCleanupEvents (storeTransaction) {
+  storeTransaction.store.emit('afterTransactionCleanup', [storeTransaction, storeTransaction.store])
+  if (storeTransaction.store._observers.has('updateV2')) {
+    /** @type {Map<string, Uint8Array>} */
+    const updates = new Map()
+    for (const [transaction] of storeTransaction.blockTransactions) {
+      const encoder = new UpdateEncoderV2()
+      const hasContent = writeUpdateMessageFromTransaction(encoder, transaction)
+      if (hasContent) {
+        const block = transaction.block
+        updates.set(block.id, encoder.toUint8Array())
+      }
+    }
+    storeTransaction.store.emit('updateV2', [updates, storeTransaction.origin, storeTransaction.store, storeTransaction])
+  }
 }
 
 /**
