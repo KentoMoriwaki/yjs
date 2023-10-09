@@ -12,7 +12,7 @@ import {
   generateNewClientId,
   createID,
   cleanupYTextAfterTransaction,
-  UpdateEncoderV1, UpdateEncoderV2, GC, StructStore, AbstractType, AbstractStruct, YEvent, NanoBlock, NanoStore, // eslint-disable-line
+  UpdateEncoderV1, UpdateEncoderV2, GC, StructStore, AbstractType, AbstractStruct, YEvent, NanoBlock, NanoStore, ContentBlockRef // eslint-disable-line
 } from '../internals.js'
 
 import * as map from 'lib0/map'
@@ -107,22 +107,11 @@ export class Transaction {
     /**
      * @type {StoreTransaction | null}
      */
-    this.storeTransaction = null
-    // /**
-    //  * @type {Set<Doc>}
-    //  */
-    // this.subdocsAdded = new Set()
-    // /**
-    //  * @type {Set<Doc>}
-    //  */
-    // this.subdocsRemoved = new Set()
-    // /**
-    //  * @type {Set<Doc>}
-    //  */
-    // this.subdocsLoaded = new Set()
-    // /**
-    //  * @type {boolean}
-    //  */
+    this.storeTransaction = block.store ? block.store._transaction : null
+
+    /**
+     * @type {boolean}
+     */
     this._needFormattingCleanup = false
   }
 }
@@ -508,6 +497,8 @@ export const transactInStore = (store, f, origin = null, local = true) => {
           transaction.blockTransactions.forEach((_, tr) => {
             tr.block._transaction = null
           })
+          // Resolve block refs
+          resolveBlockRefs(transaction)
           // At first, call all transaction observers.
           callBlockTransactionsObservers(transaction)
           // Next, call root observers
@@ -525,6 +516,52 @@ export const transactInStore = (store, f, origin = null, local = true) => {
     }
   }
   return result
+}
+
+/**
+ * Resolve block refs
+ * @param {StoreTransaction} storeTransaction
+ */
+const resolveBlockRefs = (storeTransaction) => {
+  if (storeTransaction.blockRefsAdded.size === 0 && storeTransaction.blockRefsRemoved.size === 0) return
+  console.log('resolveBlockRefs', storeTransaction.blockRefsAdded, storeTransaction.blockRefsRemoved)
+  /** @type {ContentBlockRef[]} */
+  const conficts = []
+  /** @type {Map<string, ContentBlockRef>} */
+  const refs = new Map()
+  // block ごとに作成された refs を集める
+  storeTransaction.blockRefsAdded.forEach(ref => {
+    if (refs.has(ref.blockId)) {
+      conficts.push(ref)
+    } else {
+      refs.set(ref.blockId, ref)
+    }
+  })
+  const store = storeTransaction.store
+  // 先に削除された ref の block を解放する
+  storeTransaction.blockRefsRemoved.forEach(ref => {
+    const block = store.getOrCreateBlock(ref.blockId, ref.blockType)
+    if (block._referrer && block._referrer === ref._item) {
+      block._prevReferrer = block._referrer
+      block._referrer = null
+    }
+  })
+
+  refs.forEach((ref, blockId) => {
+    const block = store.getOrCreateBlock(blockId, ref.blockType)
+    // もし block にすでに referrer がいたら、conflict にする
+    if (block._referrer) {
+      conficts.push(ref)
+    } else {
+      block._referrer = ref._item
+      ref._block = block
+      ref._type = block.getType()
+    }
+  })
+
+  if (conficts.length > 0) {
+    console.error('conflict block refs', conficts)
+  }
 }
 
 /**
@@ -747,5 +784,14 @@ export class StoreTransaction {
      * @type {Map<NanoBlock, YEvent<any>[]>}
      */
     this.rootBlockEvents = new Map()
+
+    /**
+     * @type {Set<ContentBlockRef>}
+     */
+    this.blockRefsAdded = new Set()
+    /**
+     * @type {Set<ContentBlockRef>}
+     */
+    this.blockRefsRemoved = new Set()
   }
 }

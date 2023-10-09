@@ -134,13 +134,28 @@ export class NanoStore extends Observable {
   }
 
   /**
+   * @param {string} id
+   * @param {import("./NanoBlock.js").BlockType} type
+   * @returns {NanoBlock}
+   */
+  getOrCreateBlock (id, type) {
+    let block = this.getBlock(id)
+    if (!block) {
+      block = this.createBlock(type, id)
+    }
+    return block
+  }
+
+  /**
    * Create block
    * @param {import("./NanoBlock.js").BlockType} type
+   * @param {string | undefined} [id]
    */
-  createBlock (type) {
+  createBlock (type, id) {
     const block = new NanoBlock({
       store: this,
-      type
+      type,
+      id
     })
     this.blocks.set(block.id, block)
     return block

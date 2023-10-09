@@ -98,6 +98,18 @@ export class NanoBlock extends Observable {
      * @private
      */
     this._type = null
+
+    /**
+     * Referrer item
+     * @type {Item | null}
+     */
+    this._referrer = null
+
+    /**
+     * Previous referrer item
+     * @type {Item | null}
+     */
+    this._prevReferrer = null
   }
 
   /**

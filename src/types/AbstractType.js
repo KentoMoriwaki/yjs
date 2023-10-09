@@ -11,7 +11,7 @@ import {
   ContentAny,
   ContentBinary,
   getItemCleanStart,
-  ContentDoc, YText, YArray, UpdateEncoderV1, UpdateEncoderV2, Snapshot, Transaction, EventHandler, YEvent, Item, NanoBlock, // eslint-disable-line
+  ContentDoc, YText, YArray, UpdateEncoderV1, UpdateEncoderV2, Snapshot, Transaction, EventHandler, YEvent, Item, NanoBlock, ContentBlockRef, // eslint-disable-line
 } from '../internals.js'
 
 import * as map from 'lib0/map'
@@ -664,6 +664,10 @@ export const typeListInsertGenericsAfter = (transaction, parent, referenceItem, 
             case Uint8Array:
             case ArrayBuffer:
               left = new Item(createID(ownClientId, getState(structStore, ownClientId)), left, left && left.lastId, right, right && right.id, parent, null, new ContentBinary(new Uint8Array(/** @type {Uint8Array} */ (c))))
+              left.integrate(transaction, 0)
+              break
+            case NanoBlock:
+              left = new Item(createID(ownClientId, getState(structStore, ownClientId)), left, left && left.lastId, right, right && right.id, parent, null, new ContentBlockRef(/** @type {NanoBlock} */ (c)))
               left.integrate(transaction, 0)
               break
             // case Doc:
