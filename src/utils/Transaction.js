@@ -12,7 +12,7 @@ import {
   generateNewClientId,
   createID,
   cleanupYTextAfterTransaction,
-  UpdateEncoderV1, UpdateEncoderV2, GC, StructStore, AbstractType, AbstractStruct, YEvent, NanoBlock, NanoStore, ContentBlockRef // eslint-disable-line
+  UpdateEncoderV1, UpdateEncoderV2, GC, StructStore, AbstractType, AbstractStruct, YEvent, NanoBlock, NanoStore, ContentBlockRef, YMap, YArray // eslint-disable-line
 } from '../internals.js'
 
 import * as map from 'lib0/map'
@@ -526,19 +526,19 @@ const resolveBlockRefs = (storeTransaction) => {
   if (storeTransaction.blockRefsAdded.size === 0 && storeTransaction.blockRefsRemoved.size === 0) return
   console.log('resolveBlockRefs', storeTransaction.blockRefsAdded, storeTransaction.blockRefsRemoved)
   /** @type {ContentBlockRef[]} */
-  const conficts = []
+  const conflicts = []
   /** @type {Map<string, ContentBlockRef>} */
   const refs = new Map()
   // block ごとに作成された refs を集める
   storeTransaction.blockRefsAdded.forEach(ref => {
     if (refs.has(ref.blockId)) {
-      conficts.push(ref)
+      conflicts.push(ref)
     } else {
       refs.set(ref.blockId, ref)
     }
   })
   const store = storeTransaction.store
-  // 先に削除された ref の block を解放する
+  // At first, remove referrers of removed block refs
   storeTransaction.blockRefsRemoved.forEach(ref => {
     const block = store.getOrCreateBlock(ref.blockId, ref.blockType)
     if (block._referrer && block._referrer === ref._item) {
@@ -550,17 +550,61 @@ const resolveBlockRefs = (storeTransaction) => {
   refs.forEach((ref, blockId) => {
     const block = store.getOrCreateBlock(blockId, ref.blockType)
     // もし block にすでに referrer がいたら、conflict にする
-    if (block._referrer) {
-      conficts.push(ref)
-    } else {
+    if (block._referrer && block._referrer !== ref._item) {
+      // When this transaction is local, the new referrer is always wrong.
+      // When this transaction is remote, the new referrer is always correct.
+      if (storeTransaction.local) {
+        conflicts.push(ref)
+      } else {
+        const currentRef = /** @type {ContentBlockRef} */ (block._referrer.content)
+        block._referrer = ref._item
+        ref._block = block
+        ref._type = block.getType()
+        currentRef._block = null
+        currentRef._type = null
+        conflicts.push(currentRef)
+      }
+    } else if (!block._referrer) {
       block._referrer = ref._item
       ref._block = block
       ref._type = block.getType()
     }
   })
 
-  if (conficts.length > 0) {
-    console.error('conflict block refs', conficts)
+  if (conflicts.length > 0) {
+    console.error('conflict block refs', conflicts)
+    transactInStore(store, () => {
+      for (const conflict of conflicts) {
+        // Clone conflicted item
+        const block = store.getBlock(conflict.blockId)?.clone()
+        // if the conflicted item is in map, delete it
+        if (conflict._item && conflict._item.parentSub) {
+          const key = conflict._item.parentSub
+          const map = /** @type {YMap<any>} */ (conflict._item.parent)
+          map.delete(key)
+          if (block) {
+            map.set(key, block)
+          }
+        } else if (conflict._item && conflict._item.parentSub == null) {
+          // if the conflicted item is in array, delete it
+          const array = /** @type {YArray<any>} */ (conflict._item.parent)
+          /** @type {Item | null} */
+          let item = conflict._item.left
+          let index = 0
+          while (item !== null) {
+            if (!item.deleted && item.countable) {
+              index++
+            }
+            item = item.left
+          }
+          array.delete(index)
+          if (block) {
+            array.insert(index, [block])
+          }
+        }
+      }
+    })
+    // throw new Error('conflict block refs')
   }
 }
 

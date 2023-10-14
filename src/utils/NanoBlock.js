@@ -1,6 +1,6 @@
 import {
   StructStore,
-  AbstractType, Item, NanoStore, Transaction, YArray, YMap, YText, YXmlElement, YXmlFragment, YXmlText, transact, // eslint-disable-line
+  AbstractType, Item, NanoStore, Transaction, YArray, YMap, YText, YXmlElement, YXmlFragment, YXmlText, transact, encodeStateAsUpdateV2, applyUpdateV2, // eslint-disable-line
 } from '../internals.js'
 import * as random from 'lib0/random'
 import { Observable } from 'lib0/observable'
@@ -146,6 +146,31 @@ export class NanoBlock extends Observable {
 
   isUnresolvedRoot () {
     return this.isRoot && !this.id.startsWith('@///')
+  }
+
+  /**
+   * @param {{ id?: string, isRoot?: boolean }} [opt]
+   * @return {NanoBlock}
+   */
+  clone (opt = {}) {
+    /** @type {NanoBlock} */
+    let block
+    if (this.store) {
+      block = this.store.createBlock(this.blockType)
+    } else {
+      block = new NanoBlock({
+        id: opt.id,
+        type: this.blockType,
+        gc: this.gc,
+        gcFilter: this.gcFilter,
+        store: this.store,
+        isRoot: opt.isRoot
+      })
+    }
+    // Apply all items to the new block
+    const update = encodeStateAsUpdateV2(this)
+    applyUpdateV2(block, update)
+    return block
   }
 }
 

@@ -52,9 +52,9 @@ export class ContentBlockRef {
       if (block.isRoot) {
         throw new Error('This block is already a root block.')
       }
-      if (block._referrer) {
-        throw new Error('This block is already referred.')
-      }
+      // if (block._referrer) {
+      //   throw new Error('This block is already referred.')
+      // }
       this._block = block
       this._type = block.getType()
 
@@ -66,7 +66,6 @@ export class ContentBlockRef {
         // this.prItemId = block._prevReferrer._item?.id
       }
     } else {
-      console.log('block', block)
       this.blockId = block.blockId
       this.blockType = block.blockType
     }
@@ -84,6 +83,10 @@ export class ContentBlockRef {
    */
   integrate (transaction, item) {
     this._item = item
+    if (this._block && !this._block._referrer) {
+      this._block._prevReferrer = this._block._referrer
+      this._block._referrer = item
+    }
     if (transaction.storeTransaction) {
       transaction.storeTransaction.blockRefsAdded.add(this)
     }
@@ -93,6 +96,10 @@ export class ContentBlockRef {
    * @param {Transaction} transaction
    */
   delete (transaction) {
+    if (this._block && this._block._referrer && this._block._referrer === this._item) {
+      this._block._prevReferrer = this._block._referrer
+      this._block._referrer = null
+    }
     if (transaction.storeTransaction) {
       if (transaction.storeTransaction.blockRefsAdded.has(this)) {
         transaction.storeTransaction.blockRefsAdded.delete(this)
