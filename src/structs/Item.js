@@ -23,7 +23,7 @@ import {
   readContentType,
   addChangedTypeToTransaction,
   isDeleted,
-  StackItem, DeleteSet, UpdateDecoderV1, UpdateDecoderV2, UpdateEncoderV1, UpdateEncoderV2, ContentType, ContentDeleted, StructStore, ID, AbstractType, Transaction, // eslint-disable-line
+  StackItem, DeleteSet, UpdateDecoderV1, UpdateDecoderV2, UpdateEncoderV1, UpdateEncoderV2, ContentType, ContentDeleted, StructStore, ID, AbstractType, Transaction, NanoBlock, // eslint-disable-line
   readContentBlockRef,
   readContentBlockUnRef
 } from '../internals.js'
@@ -696,6 +696,27 @@ export class Item extends AbstractStruct {
       }
     }
     this.content.write(encoder, offset)
+  }
+
+  /**
+  * @returns {NanoBlock | null}
+  */
+  get block () {
+    let item = /** @type {Item | null} */(this)
+    while (item) {
+      if (
+        item.parent &&
+        item.parent instanceof AbstractType
+      ) {
+        if (item.parent.block) {
+          return item.parent.block
+        }
+        item = item.parent._item
+      } else {
+        return null
+      }
+    }
+    return null
   }
 }
 

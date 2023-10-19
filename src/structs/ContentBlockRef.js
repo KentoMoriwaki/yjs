@@ -85,6 +85,7 @@ export class ContentBlockRef {
     this._item = item
     if (this._block && !this._block._referrer) {
       this._block._prevReferrer = this._block._referrer
+      // @ts-ignore
       this._block._referrer = item
     }
     if (transaction.storeTransaction) {

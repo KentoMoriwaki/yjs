@@ -298,10 +298,6 @@ const cleanupTransactions = (transactionCleanups, i) => {
             // sort events by path length so that top-level events are fired first.
             events
               .sort((event1, event2) => event1.path.length - event2.path.length)
-            // TODO: Register root observers here
-            if (type.block && type.block.isRoot && type.block.store && transaction.storeTransaction) {
-              // transaction.storeTransaction.set
-            }
             // We don't need to check for events.length
             // because we know it has at least one element
             callEventHandlerListeners(type._dEH, events, transaction)
@@ -407,14 +403,9 @@ const cleanupTransactions = (transactionCleanups, i) => {
 export const transact = (block, f, origin = null, local = true) => {
   if (block.store) {
     return transactInStore(block.store, (storeTr) => {
-      const transactionCleanups = block._transactionCleanups
       if (block._transaction === null) {
         block._transaction = new Transaction(block, storeTr.origin, storeTr.local)
-        transactionCleanups.push(block._transaction)
         storeTr.blockTransactions.set(block._transaction, block)
-        if (transactionCleanups.length === 1) {
-          block.emit('beforeAllTransactions', [block])
-        }
         block.emit('beforeTransaction', [block._transaction, block])
       }
       return f(block._transaction)
@@ -488,15 +479,22 @@ export const transactInStore = (store, f, origin = null, local = true) => {
   } finally {
     if (initialCall) {
       const finishCleanup = store._transaction === transactionCleanups[0]
+      // これ以降に呼ばれた変更は、新しい transaction になる
+      store._transaction.blockTransactions.forEach((_, tr) => {
+        tr.block._transaction = null
+      })
       store._transaction = null
       if (finishCleanup) {
         let i = 0
         while (i < transactionCleanups.length) {
           const transaction = transactionCleanups[i]
-          // これ以降に呼ばれた変更は、新しい transaction になる
+
           transaction.blockTransactions.forEach((_, tr) => {
-            tr.block._transaction = null
+            const ds = tr.deleteSet
+            sortAndMergeDeleteSet(ds)
+            tr.afterState = getStateVector(tr.block.structStore)
           })
+
           // Resolve block refs
           resolveBlockRefs(transaction)
           // At first, call all transaction observers.
@@ -524,7 +522,6 @@ export const transactInStore = (store, f, origin = null, local = true) => {
  */
 const resolveBlockRefs = (storeTransaction) => {
   if (storeTransaction.blockRefsAdded.size === 0 && storeTransaction.blockRefsRemoved.size === 0) return
-  console.log('resolveBlockRefs', storeTransaction.blockRefsAdded, storeTransaction.blockRefsRemoved)
   /** @type {ContentBlockRef[]} */
   const conflicts = []
   /** @type {Map<string, ContentBlockRef>} */
@@ -557,6 +554,7 @@ const resolveBlockRefs = (storeTransaction) => {
         conflicts.push(ref)
       } else {
         const currentRef = /** @type {ContentBlockRef} */ (block._referrer.content)
+        // @ts-ignore
         block._referrer = ref._item
         ref._block = block
         ref._type = block.getType()
@@ -565,6 +563,7 @@ const resolveBlockRefs = (storeTransaction) => {
         conflicts.push(currentRef)
       }
     } else if (!block._referrer) {
+      // @ts-ignore
       block._referrer = ref._item
       ref._block = block
       ref._type = block.getType()
@@ -630,9 +629,6 @@ const callBlockTransactionsObservers = (storeTransaction) => {
 const consumeBlockTransactionObservers = (transaction) => {
   const block = transaction.block
 
-  const ds = transaction.deleteSet
-  sortAndMergeDeleteSet(ds)
-  transaction.afterState = getStateVector(transaction.block.structStore)
   block.emit('beforeObserverCalls', [transaction, block])
   /**
    * An array of event callbacks.
@@ -694,6 +690,10 @@ const consumeBlockTransactionObservers = (transaction) => {
  * @param {StoreTransaction} storeTransaction
  */
 const callRootObservers = (storeTransaction) => {
+  storeTransaction.blocksAdded.forEach((block) => {
+    // Calc and cache root block
+    block.getRootBlock()
+  })
   // Gather changed root block types
   storeTransaction.rootBlockEvents.forEach((events, block) => {
     // TODO: Call root observers
@@ -828,6 +828,11 @@ export class StoreTransaction {
      * @type {Map<NanoBlock, YEvent<any>[]>}
      */
     this.rootBlockEvents = new Map()
+
+    /**
+     * @type {Set<NanoBlock>}
+     */
+    this.blocksAdded = new Set()
 
     /**
      * @type {Set<ContentBlockRef>}

@@ -1,6 +1,6 @@
 import {
   StructStore,
-  AbstractType, Item, NanoStore, Transaction, YArray, YMap, YText, YXmlElement, YXmlFragment, YXmlText, transact, encodeStateAsUpdateV2, applyUpdateV2, // eslint-disable-line
+  AbstractType, Item, NanoStore, Transaction, YArray, YMap, YText, YXmlElement, YXmlFragment, YXmlText, transact, encodeStateAsUpdateV2, applyUpdateV2, ContentBlockRef, // eslint-disable-line
 } from '../internals.js'
 import * as random from 'lib0/random'
 import { Observable } from 'lib0/observable'
@@ -101,15 +101,21 @@ export class NanoBlock extends Observable {
 
     /**
      * Referrer item
-     * @type {Item | null}
+     * @type {Item & { content: ContentBlockRef } | null}
      */
     this._referrer = null
 
     /**
      * Previous referrer item
-     * @type {Item | null}
+     * @type {Item & { content: ContentBlockRef } | null}
      */
     this._prevReferrer = null
+
+    /**
+     * @type {NanoBlock | null}
+     * @private
+     */
+    this._rootBlock = null
   }
 
   /**
@@ -144,8 +150,25 @@ export class NanoBlock extends Observable {
     return transact(this, f, origin)
   }
 
+  // TODO: Better to rename to localOnlyRoot?
   isUnresolvedRoot () {
     return this.isRoot && !this.id.startsWith('@///')
+  }
+
+  /**
+   * Return the root block of this block.
+   * @returns {NanoBlock | null}
+   */
+  getRootBlock () {
+    if (this._rootBlock) {
+      return this._rootBlock
+    }
+    const root = this.isRoot ? this : this._referrer?.block?.getRootBlock() ?? null
+    if (root) {
+      this._rootBlock = root
+      return root
+    }
+    return null
   }
 
   /**

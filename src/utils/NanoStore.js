@@ -110,6 +110,9 @@ export class NanoStore extends Observable {
       })
       documents.set(owner.fieldName, block)
       this.blocks.set(id, block)
+      if (this._transaction) {
+        this._transaction.blocksAdded.add(block)
+      }
     }
     return block
   }
@@ -158,6 +161,9 @@ export class NanoStore extends Observable {
       id
     })
     this.blocks.set(block.id, block)
+    if (this._transaction) {
+      this._transaction.blocksAdded.add(block)
+    }
     return block
   }
 
