@@ -5,13 +5,7 @@ import {
 import * as random from 'lib0/random'
 import { Observable } from 'lib0/observable'
 
-/**
- * @typedef {{
- *   collectionName: string;
- *   documentId: string;
- *   fieldName: string;
- * }} OwnerId
- */
+const ROOT_NAME_ID_PREFIX = '@'
 
 export const generateNewClientId = random.uint32
 
@@ -31,6 +25,7 @@ const generateNewBlockId = random.uuidv4
  * @property {boolean} [gc=true] Disable garbage collection (default: gc=store.gc||true)
  * @property {function(Item):boolean} [gcFilter] Will be called before an Item is garbage collected. Return false to keep the Item.
  * @property {boolean} [isRoot] Whether this is a root block
+ * @property {string | null} [rootName] Name of the root block
  */
 
 /**
@@ -45,9 +40,9 @@ export class NanoBlock extends Observable {
     super()
 
     /**
-     * @type {string}
+     * @type {string | null}
      */
-    this.id = opts.id ?? generateNewBlockId()
+    this._id = opts.id ?? (opts.isRoot ? null : generateNewBlockId())
 
     /**
      * @type {BlockType}
@@ -85,6 +80,11 @@ export class NanoBlock extends Observable {
     this.isRoot = opts.isRoot ?? false
 
     /**
+     * @type {string | null}
+     */
+    this.rootName = opts.rootName ?? null
+
+    /**
      * @type {Transaction | null}
      */
     this._transaction = null
@@ -118,6 +118,24 @@ export class NanoBlock extends Observable {
     this._rootBlock = null
   }
 
+  get id () {
+    return this._id ?? `${ROOT_NAME_ID_PREFIX}${this.rootName}`
+  }
+
+  /**
+   * @param {string} newId
+   */
+  setId (newId) {
+    if (this._id) {
+      console.error('Cannot set id of block which already has an id.')
+      return
+    }
+    this._id = newId
+    if (this.store) {
+      this.store.blocks.set(newId, this)
+    }
+  }
+
   /**
    * @template {AbstractType<any>} T
    * @param {string} _name
@@ -148,11 +166,6 @@ export class NanoBlock extends Observable {
    */
   transact (f, origin = null) {
     return transact(this, f, origin)
-  }
-
-  // TODO: Better to rename to localOnlyRoot?
-  isUnresolvedRoot () {
-    return this.isRoot && !this.id.startsWith('@///')
   }
 
   /**

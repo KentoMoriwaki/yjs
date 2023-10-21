@@ -6,15 +6,7 @@ import {
 import { Observable } from 'lib0/observable'
 
 /**
- * @typedef {string} CollectionName
- * @typedef {string} DocumentId
- * @typedef {string} FieldName
- * @typedef {string} BlockId
- * @typedef {Map<FieldName, NanoBlock>} FieldBlockMap
- * @typedef {Map<DocumentId, FieldBlockMap>} DocumentFieldMap
- * @typedef {Map<CollectionName, DocumentFieldMap>} CollectionDocumentMap
- * @typedef {CollectionDocumentMap} RootMap
- * @typedef {Map<BlockId, NanoBlock>} BlockMap
+ * @typedef {Map<string, NanoBlock>} BlockMap
  */
 
 /**
@@ -45,7 +37,7 @@ export class NanoStore extends Observable {
     this.gcFilter = gcFilter
 
     /**
-     * @type {RootMap}
+     * @type {BlockMap}
      */
     this.roots = new Map()
 
@@ -65,17 +57,15 @@ export class NanoStore extends Observable {
   }
 
   /**
-   * @param {CollectionName} collectionName
-   * @param {DocumentId} documentId
-   * @param {FieldName} fieldName
+   * @param {string} rootBlockName
    * @param {import("./NanoBlock.js").BlockType} blockType
    * @returns {NanoBlock} The root type
    */
-  getRoot (collectionName, documentId, fieldName, blockType) {
-    let block = this.getRootBlock(collectionName, documentId, fieldName)
+  getRootBlockOrCreate (rootBlockName, blockType) {
+    let block = this.getRootBlock(rootBlockName)
     if (block === undefined) {
       block = this.setRootBlock(
-        createOwnerId(collectionName, documentId, fieldName),
+        rootBlockName,
         blockType
       )
     }
@@ -84,32 +74,21 @@ export class NanoStore extends Observable {
 
   /**
    * @private
-   * @param {import("./NanoBlock.js").OwnerId} owner
+   * @param {string} rootBlockName
    * @param {import("./NanoBlock.js").BlockType} blockType
    * @returns {NanoBlock}
    */
-  setRootBlock (owner, blockType) {
-    let collections = this.roots.get(owner.collectionName)
-    if (!collections) {
-      collections = new Map()
-      this.roots.set(owner.collectionName, collections)
-    }
-    let documents = collections.get(owner.documentId)
-    if (!documents) {
-      documents = new Map()
-      collections.set(owner.documentId, documents)
-    }
-    let block = documents.get(owner.fieldName)
+  setRootBlock (rootBlockName, blockType) {
+    let block = this.roots.get(rootBlockName)
     if (!block) {
-      const id = getRootId(owner)
       block = new NanoBlock({
         store: this,
-        id,
         isRoot: true,
+        rootName: rootBlockName,
         type: blockType
       })
-      documents.set(owner.fieldName, block)
-      this.blocks.set(id, block)
+      this.roots.set(rootBlockName, block)
+      this.blocks.set(block.id, block)
       if (this._transaction) {
         this._transaction.blocksAdded.add(block)
       }
@@ -118,14 +97,11 @@ export class NanoStore extends Observable {
   }
 
   /**
-   * @param {CollectionName} collectionName
-   * @param {DocumentId} documentId
-   * @param {FieldName} fieldName
+   * @param {string} rootBlockName
    * @returns {NanoBlock | undefined} The root type
-   * @private
    */
-  getRootBlock (collectionName, documentId, fieldName) {
-    return this.roots.get(collectionName)?.get(documentId)?.get(fieldName)
+  getRootBlock (rootBlockName) {
+    return this.roots.get(rootBlockName)
   }
 
   /**
@@ -172,27 +148,4 @@ export class NanoStore extends Observable {
 
     super.destroy()
   }
-}
-
-/**
- * @param {CollectionName} collectionName
- * @param {DocumentId} documentId
- * @param {FieldName} fieldName
- * @returns {import("./NanoBlock.js").OwnerId}
- */
-function createOwnerId (collectionName, documentId, fieldName) {
-  return {
-    collectionName,
-    documentId,
-    fieldName
-  }
-}
-
-/**
- *
- * @param {import("./NanoBlock.js").OwnerId} owner
- * @returns {string}
- */
-const getRootId = (owner) => {
-  return `@///${owner.collectionName}///${owner.documentId}///${owner.fieldName}`
 }
