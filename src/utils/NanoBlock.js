@@ -1,8 +1,9 @@
 import {
   StructStore,
-  AbstractType, Item, NanoStore, Transaction, YArray, YMap, YText, YXmlElement, YXmlFragment, YXmlText, transact, encodeStateAsUpdateV2, applyUpdateV2, ContentBlockRef, // eslint-disable-line
+  AbstractType, Item, NanoStore, Transaction, YArray, YMap, YText, YXmlElement, YXmlFragment, YXmlText, transact, encodeStateAsUpdateV2, applyUpdateV2, ContentBlockRef, ContentBlockUnref, YEvent, // eslint-disable-line
 } from '../internals.js'
 import * as random from 'lib0/random'
+import * as map from 'lib0/map'
 import { Observable } from 'lib0/observable'
 
 const ROOT_NAME_ID_PREFIX = '@'
@@ -48,6 +49,11 @@ export class NanoBlock extends Observable {
      * @type {BlockType}
      */
     this.blockType = opts.type ?? 'xmlFragment'
+
+    /**
+     * @type {Map<string, AbstractType<YEvent<any>>>}
+     */
+    this.share = new Map()
 
     /**
      * @type {StructStore}
@@ -137,18 +143,73 @@ export class NanoBlock extends Observable {
   }
 
   /**
+   * Define a shared data type.
+   *
+   * Multiple calls of `y.get(name, TypeConstructor)` yield the same result
+   * and do not overwrite each other. I.e.
+   * `y.define(name, Y.Array) === y.define(name, Y.Array)`
+   *
+   * After this method is called, the type is also available on `y.share.get(name)`.
+   *
+   * *Best Practices:*
+   * Define all types right after the Yjs instance is created and store them in a separate object.
+   * Also use the typed methods `getText(name)`, `getArray(name)`, ..
+   *
+   * @example
+   *   const y = new Y(..)
+   *   const appState = {
+   *     document: y.getText('document')
+   *     comments: y.getArray('comments')
+   *   }
+   *
+   * @param {string} name
+   * @param {Function} TypeConstructor The constructor of the type definition. E.g. Y.Text, Y.Array, Y.Map, ...
+   * @return {AbstractType<any>} The created type. Constructed with TypeConstructor
+   *
+   * @public
+   */
+  get (name, TypeConstructor = AbstractType) {
+    const type = map.setIfUndefined(this.share, name, () => {
+      // @ts-ignore
+      const t = new TypeConstructor()
+      t._integrate(this, null)
+      return t
+    })
+    const Constr = type.constructor
+    if (TypeConstructor !== AbstractType && Constr !== TypeConstructor) {
+      if (Constr === AbstractType) {
+        // @ts-ignore
+        const t = new TypeConstructor()
+        t._map = type._map
+        type._map.forEach(/** @param {Item?} n */ n => {
+          for (; n !== null; n = n.left) {
+            // @ts-ignore
+            n.parent = t
+          }
+        })
+        t._start = type._start
+        for (let n = t._start; n !== null; n = n.right) {
+          n.parent = t
+        }
+        t._length = type._length
+        this.share.set(name, t)
+        t._integrate(this, null)
+        return t
+      } else {
+        throw new Error(`Type with the name ${name} has already been defined with a different constructor`)
+      }
+    }
+    return type
+  }
+
+  /**
    * @template {AbstractType<any>} T
-   * @param {string} _name
+   * @param {string} name
    * @returns {T}
    */
-  getType (_name = '') {
+  getType (name = '') {
     // @ts-ignore
-    if (this._type) return this._type
-    // Different from Doc, we knows what the type is before integration
-    this._type = createType(this.blockType)
-    this._type._integrate(this, null)
-    // @ts-ignore
-    return this._type
+    return this.get(name, getTypeConstructor(this.blockType))
   }
 
   /**
@@ -208,30 +269,48 @@ export class NanoBlock extends Observable {
     applyUpdateV2(block, update)
     return block
   }
+
+  /**
+   * add ContentBlockUnref
+   * @param {ContentBlockRef} ref
+   * @internal
+   */
+  addUnref (ref) {
+    const unrefArray = /** @type {YArray<any>} */(this.get('_unrefs', YArray))
+    if (!ref._item) {
+      return
+    }
+    const unref = new ContentBlockUnref({
+      blockId: ref.blockId,
+      refClient: ref._item.id.client,
+      refClock: ref._item.id.clock
+    })
+    unrefArray.push([unref])
+  }
 }
 
 /**
  * @param {BlockType} type
- * @return {AbstractType<any>}
+ * @return {new() => AbstractType<any>}
  */
-function createType (type) {
+function getTypeConstructor (type) {
   if (type === 'array') {
-    return new YArray()
+    return YArray
   }
   if (type === 'map') {
-    return new YMap()
+    return YMap
   }
   if (type === 'text') {
-    return new YText()
+    return YText
   }
   if (type === 'xmlElement') {
-    return new YXmlElement()
+    return YXmlElement
   }
   if (type === 'xmlFragment') {
-    return new YXmlFragment()
+    return YXmlFragment
   }
   if (type === 'xmlText') {
-    return new YXmlText()
+    return YXmlText
   }
   const /** @type {never} */ _type = type
   throw new Error(`Unexpected type ${_type}`)

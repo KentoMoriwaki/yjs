@@ -80,8 +80,11 @@ export const readID = decoder =>
  * @function
  */
 export const findRootTypeKey = type => {
-  if (type.block) {
-    return ''
+  // @ts-ignore
+  for (const [key, value] of type.block.share.entries()) {
+    if (value === type) {
+      return key
+    }
   }
   throw error.unexpectedCase()
 }

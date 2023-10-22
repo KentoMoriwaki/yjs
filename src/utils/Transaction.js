@@ -12,7 +12,7 @@ import {
   generateNewClientId,
   createID,
   cleanupYTextAfterTransaction,
-  UpdateEncoderV1, UpdateEncoderV2, GC, StructStore, AbstractType, AbstractStruct, YEvent, NanoBlock, NanoStore, ContentBlockRef, YMap, YArray // eslint-disable-line
+  UpdateEncoderV1, UpdateEncoderV2, GC, StructStore, AbstractType, AbstractStruct, YEvent, NanoBlock, NanoStore, ContentBlockRef, ContentBlockUnref, YMap, YArray, // eslint-disable-line
 } from '../internals.js'
 
 import * as map from 'lib0/map'
@@ -522,6 +522,42 @@ export const transactInStore = (store, f, origin = null, local = true) => {
  */
 const resolveBlockRefs = (storeTransaction) => {
   if (storeTransaction.blockRefsAdded.size === 0 && storeTransaction.blockRefsRemoved.size === 0) return
+
+  // 削除された Ref に対して、ContentBlockUnref を作成する
+  // storeTransaction.blockUnrefAdded を作って、そこにすでに存在していないかチェックしないと、何回も Unref が作られてしまう気がする
+  // 他に冪等性を担保する方法はあるか？
+  /**
+   * @type {Map<string, ContentBlockRef>}
+   */
+  const refsToUnref = new Map()
+  storeTransaction.blockRefsRemoved.forEach(ref => {
+    if (ref._item && ref._item.block) {
+      const key = `${ref._item.block.id}:${ref._item.id.client}:${ref._item.id.clock}`
+      refsToUnref.set(key, ref)
+    }
+  })
+  storeTransaction.blockUnrefsAdded.forEach(unref => {
+    if (unref._item && unref._item.block) {
+      const key = `${unref._item.block?.id}:${unref.refClient}:${unref.refClock}`
+      refsToUnref.delete(key)
+    }
+  })
+  if (refsToUnref.size > 0) {
+    console.log('block refs removed', storeTransaction.blockRefsRemoved, storeTransaction.blockUnrefsAdded)
+    transactInStore(storeTransaction.store, () => {
+      refsToUnref.forEach(ref => {
+        if (ref._item && ref._item.block) {
+          const unrefArray = /** @type {YArray<any>} */(ref._item.block.get('_unrefs', YArray))
+          unrefArray.push([new ContentBlockUnref({
+            blockId: ref.blockId,
+            refClient: ref._item.id.client,
+            refClock: ref._item.id.clock
+          })])
+        }
+      })
+    }, null, true)
+  }
+
   /** @type {ContentBlockRef[]} */
   const conflicts = []
   /** @type {Map<string, ContentBlockRef>} */
@@ -838,9 +874,15 @@ export class StoreTransaction {
      * @type {Set<ContentBlockRef>}
      */
     this.blockRefsAdded = new Set()
+
     /**
      * @type {Set<ContentBlockRef>}
      */
     this.blockRefsRemoved = new Set()
+
+    /**
+     * @type {Set<ContentBlockUnref>}
+     */
+    this.blockUnrefsAdded = new Set()
   }
 }

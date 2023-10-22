@@ -163,7 +163,9 @@ export class ContentBlockRef {
 
 /**
  * @typedef {Object} ContentBlockUnrefOpts
- * @property {string} blockId
+ * @property {string} blockId target block id
+ * @property {number} refClient client id of the ref item
+ * @property {number} refClock clock of the ref item
  */
 
 export class ContentBlockUnref {
@@ -176,6 +178,23 @@ export class ContentBlockUnref {
      * @type {string}
      */
     this.blockId = opts.blockId
+
+    /**
+     * Client id of the ref item
+     * @type {number}
+     */
+    this.refClient = opts.refClient
+
+    /**
+     * Clock of the ref item
+     * @type {number}
+     */
+    this.refClock = opts.refClock
+
+    /**
+     * @type {Item | null}
+     */
+    this._item = null
   }
 
   /**
@@ -183,23 +202,26 @@ export class ContentBlockUnref {
    * @param {Item} item
    */
   integrate (transaction, item) {
+    this._item = item
     // Unref が作成される時には対応する Ref が削除されるので、ここでの処理は不要
     // Unref が GC されるとバックエンドでの Ref の更新ができないので、GC しないように keep フラグを立てる
     item.keep = true
+    if (transaction.storeTransaction) {
+      transaction.storeTransaction.blockUnrefsAdded.add(this)
+    }
   }
 
   /**
    * @param {Transaction} transaction
    */
   delete (transaction) {
-    // if (transaction.storeTransaction) {
-    //   transaction.storeTransaction.blockRefsRemoved.delete(this)
-    // }
   }
 
   copy () {
     return new ContentBlockUnref({
-      blockId: this.blockId
+      blockId: this.blockId,
+      refClient: this.refClient,
+      refClock: this.refClock
     })
   }
 
@@ -226,6 +248,10 @@ export class ContentBlockUnref {
    */
   write (encoder, offset) {
     encoder.writeString(this.blockId)
+    encoder.writeLeftID({
+      client: this.refClient,
+      clock: this.refClock
+    })
   }
 
   /**
@@ -267,9 +293,12 @@ function createContentBlockRefFromDecoder (decoder) {
  */
 function createContentBlockUnrefFromDecoder (decoder) {
   const blockId = decoder.readString()
+  const ref = decoder.readLeftID()
 
   return {
-    blockId
+    blockId,
+    refClient: ref.client,
+    refClock: ref.clock
   }
 }
 

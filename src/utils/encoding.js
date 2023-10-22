@@ -159,7 +159,7 @@ export const readClientsStructRefs = (decoder, block) => {
             (info & binary.BIT8) === binary.BIT8 ? decoder.readLeftID() : null, // origin
             null, // right
             (info & binary.BIT7) === binary.BIT7 ? decoder.readRightID() : null, // right origin
-            cantCopyParentInfo ? (decoder.readParentInfo() ? block.getType(decoder.readString()) : decoder.readLeftID()) : null, // parent
+            cantCopyParentInfo ? (decoder.readParentInfo() ? block.get(decoder.readString()) : decoder.readLeftID()) : null, // parent
             cantCopyParentInfo && (info & binary.BIT6) === binary.BIT6 ? decoder.readString() : null, // parentSub
             readItemContent(decoder, info) // item content
           )
