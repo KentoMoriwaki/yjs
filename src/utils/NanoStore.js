@@ -1,7 +1,7 @@
 import {
   NanoBlock,
   generateNewClientId,
-  Item, StoreTransaction // eslint-disable-line
+  Item, StoreTransaction, AbstractType // eslint-disable-line
 } from '../internals.js'
 import { Observable } from 'lib0/observable'
 
@@ -13,6 +13,7 @@ import { Observable } from 'lib0/observable'
  * @typedef {Object} NanoStoreOpts
  * @property {boolean} [NanoStoreOpts.gc=true] Disable garbage collection (default: gc=true)
  * @property {function(Item):boolean} [NanoStoreOpts.gcFilter] Will be called before an Item is garbage collected. Return false to keep the Item.
+ * @property {boolean} [NanoStoreOpts.autoRef=true] Whether to automatically create a reference to a block when it is referenced.
  */
 
 /**
@@ -23,7 +24,7 @@ export class NanoStore extends Observable {
   /**
    * @param {NanoStoreOpts} opts configuration
    */
-  constructor ({ gc = true, gcFilter = () => true } = {}) {
+  constructor ({ gc = true, gcFilter = () => true, autoRef = true } = {}) {
     super()
     this.clientID = generateNewClientId()
     /**
@@ -35,6 +36,11 @@ export class NanoStore extends Observable {
      * @type {function(Item):boolean}
      */
     this.gcFilter = gcFilter
+
+    /**
+     * @type {boolean}
+     */
+    this.autoRef = autoRef
 
     /**
      * @type {BlockMap}
@@ -127,16 +133,21 @@ export class NanoStore extends Observable {
 
   /**
    * Create block
-   * @param {import("./NanoBlock.js").BlockType} type
+   * @param {import("./NanoBlock.js").BlockType} blockType
    * @param {string | undefined} [id]
+   * @param {AbstractType<any> | undefined} [type]
    */
-  createBlock (type, id) {
+  createBlock (blockType, id, type) {
     const block = new NanoBlock({
       store: this,
-      type,
+      type: blockType,
       id
     })
     this.blocks.set(block.id, block)
+    if (type) {
+      block.share.set('', type)
+      type._integrate(block, null)
+    }
     if (this._transaction) {
       this._transaction.blocksAdded.add(block)
     }

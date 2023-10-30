@@ -269,24 +269,47 @@ export class NanoBlock extends Observable {
     applyUpdateV2(block, update)
     return block
   }
+}
 
-  /**
-   * add ContentBlockUnref
-   * @param {ContentBlockRef} ref
-   * @internal
-   */
-  addUnref (ref) {
-    const unrefArray = /** @type {YArray<any>} */(this.get('_unrefs', YArray))
-    if (!ref._item) {
-      return
+/**
+ * @param {NanoBlock} block
+ * @param {ContentBlockRef | null} refItem
+ */
+export function updateBlockReferrer (block, refItem, updatePrev = true) {
+  if (refItem === null && block._referrer) {
+    block._referrer.content._block = null
+    block._referrer.content._type = null
+    if (updatePrev) {
+      block._prevReferrer = block._referrer
     }
-    const unref = new ContentBlockUnref({
-      blockId: ref.blockId,
-      refClient: ref._item.id.client,
-      refClock: ref._item.id.clock
-    })
-    unrefArray.push([unref])
+    block._referrer = null
+  } if (refItem) {
+    if (block._referrer && block._referrer !== refItem._item) {
+      block._referrer.content._block = null
+      block._referrer.content._type = null
+      if (updatePrev) {
+        block._prevReferrer = block._referrer
+      }
+    }
+    block._referrer = refItem._item
   }
+}
+
+/**
+ * @param {NanoBlock} block
+ * @param {ContentBlockRef} ref
+ */
+export function addUnrefToBlock (block, ref) {
+  const unrefArray = /** @type {YArray<any>} */(block.get('_unrefs', YArray))
+  if (!ref._item) {
+    return
+  }
+  const unref = new ContentBlockUnref({
+    blockId: ref.blockId,
+    refClient: ref._item.id.client,
+    refClock: ref._item.id.clock
+  })
+  unrefArray.push([unref])
 }
 
 /**
@@ -314,4 +337,30 @@ function getTypeConstructor (type) {
   }
   const /** @type {never} */ _type = type
   throw new Error(`Unexpected type ${_type}`)
+}
+
+/**
+ * @param {AbstractType<any>} type
+ * @return {BlockType}
+ */
+export function getBlockTypeFromInstance (type) {
+  if (type instanceof YArray) {
+    return 'array'
+  }
+  if (type instanceof YMap) {
+    return 'map'
+  }
+  if (type instanceof YText) {
+    return 'text'
+  }
+  if (type instanceof YXmlElement) {
+    return 'xmlElement'
+  }
+  if (type instanceof YXmlFragment) {
+    return 'xmlFragment'
+  }
+  if (type instanceof YXmlText) {
+    return 'xmlText'
+  }
+  throw new Error(`Unexpected type ${type}`)
 }

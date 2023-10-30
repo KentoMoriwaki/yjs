@@ -1,4 +1,4 @@
-import { NanoBlock, Item, Transaction, UpdateDecoderV1, UpdateDecoderV2, UpdateEncoderV1, UpdateEncoderV2, ID, StructStore, AbstractType } from '../internals.js' // eslint-disable-line
+import { NanoBlock, Item, Transaction, UpdateDecoderV1, UpdateDecoderV2, UpdateEncoderV1, UpdateEncoderV2, ID, StructStore, AbstractType, getBlockTypeFromInstance, updateBlockReferrer, NanoStore, YMap, YArray } from '../internals.js' // eslint-disable-line
 
 import * as error from 'lib0/error'
 
@@ -10,9 +10,10 @@ import * as error from 'lib0/error'
 
 export class ContentBlockRef {
   /**
-   * @param {NanoBlock | ContentBlockRefOpts} block
+   * Initialized with either a NanoBlock or a AbstractType when manipulated by the user.
+   * @param {NanoBlock | AbstractType<any> | ContentBlockRefOpts} opt
    */
-  constructor (block) {
+  constructor (opt) {
     /**
      * Block id to refer
      * @type {string}
@@ -30,13 +31,13 @@ export class ContentBlockRef {
      * Block if of previous referrer
      * @type {string}
      */
-    this.prBlockId = ''
+    this.prevBlockId = ''
 
     /**
      * Item ID of previous referrer
      * @type {ID | null}
      */
-    this.prItemId = null
+    this.prevItemId = null
 
     /**
      * @type {NanoBlock | null}
@@ -48,7 +49,8 @@ export class ContentBlockRef {
      */
     this._type = null
 
-    if (block instanceof NanoBlock) {
+    if (opt instanceof NanoBlock) {
+      const block = opt
       if (block.isRoot) {
         throw new Error('This block is already a root block.')
       }
@@ -60,18 +62,25 @@ export class ContentBlockRef {
 
       this.blockId = block.id
       this.blockType = block.blockType
-
-      if (block._prevReferrer) {
-        // this.prBlockId = block._prevReferrer.parent.block.id
-        // this.prItemId = block._prevReferrer._item?.id
+    } else if (opt instanceof AbstractType) {
+      const type = opt
+      const block = type.block
+      if (!block && type._item?.block) {
+        throw new Error("Cannot create a referrer for a type that's a child of a type already referred.")
+      }
+      this._type = type
+      this.blockType = getBlockTypeFromInstance(type)
+      if (block) {
+        this._block = block
+        this.blockId = block.id
       }
     } else {
-      this.blockId = block.blockId
-      this.blockType = block.blockType
+      this.blockId = opt.blockId
+      this.blockType = opt.blockType
     }
 
     /**
-     * @type {Item | null}
+     * @type {Item & { content: ContentBlockRef } | null}
      */
     this._item = null
   }
@@ -79,18 +88,41 @@ export class ContentBlockRef {
   /**
    *
    * @param {Transaction} transaction
-   * @param {Item} item
+   * @param {Item & { content: ContentBlockRef }} item
    */
   integrate (transaction, item) {
     this._item = item
-    if (this._block && !this._block._referrer) {
-      this._block._prevReferrer = this._block._referrer
-      // @ts-ignore
-      this._block._referrer = item
+    if (!transaction.storeTransaction) return
+    const store = transaction.storeTransaction.store
+    const createdFromUpdate = !this._type
+    // When this ref is created from an update, the conflict should be resolve during cleanup transcation
+    if (!createdFromUpdate) {
+      if (!this._block) {
+        if (this.blockId) {
+          this._block = store.getRootBlockOrCreate(this.blockId, this.blockType)
+        } else if (this._type) {
+          const newBlock = store.createBlock(this.blockType, undefined, this._type)
+          this._block = newBlock
+          this.blockId = newBlock.id
+        } else {
+          throw new Error('Cannot create block')
+        }
+      }
+      if (this._block._referrer && this._block._referrer !== item) {
+        // Clone block and update blockId and blockType
+        const newBlock = this._block.clone()
+        this._block = newBlock
+        this._type = newBlock.getType()
+        this.blockId = newBlock.id
+        this.blockType = newBlock.blockType
+      }
+      updateBlockReferrer(this._block, this)
+      if (this._block._prevReferrer && this._block._prevReferrer.block) {
+        this.prevBlockId = this._block._prevReferrer.block?.id
+        this.prevItemId = this._block._prevReferrer.id
+      }
     }
-    if (transaction.storeTransaction) {
-      transaction.storeTransaction.blockRefsAdded.add(this)
-    }
+    transaction.storeTransaction.blockRefsAdded.add(this)
   }
 
   /**

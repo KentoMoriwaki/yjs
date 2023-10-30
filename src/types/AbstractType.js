@@ -286,6 +286,11 @@ export class AbstractType {
      * @type {null | Array<ArraySearchMarker>}
      */
     this._searchMarker = null
+
+    /**
+     * @type {boolean | undefined}
+     */
+    this.createRef = undefined
   }
 
   /**
@@ -680,7 +685,11 @@ export const typeListInsertGenericsAfter = (transaction, parent, referenceItem, 
             //   break
             default:
               if (c instanceof AbstractType) {
-                left = new Item(createID(ownClientId, getState(structStore, ownClientId)), left, left && left.lastId, right, right && right.id, parent, null, new ContentType(c))
+                if (block.store?.autoRef && c.createRef !== false) {
+                  left = new Item(createID(ownClientId, getState(structStore, ownClientId)), left, left && left.lastId, right, right && right.id, parent, null, new ContentBlockRef(c))
+                } else {
+                  left = new Item(createID(ownClientId, getState(structStore, ownClientId)), left, left && left.lastId, right, right && right.id, parent, null, new ContentType(c))
+                }
                 left.integrate(transaction, 0)
               } else {
                 throw new Error('Unexpected content type in insert operation')

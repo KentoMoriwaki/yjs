@@ -12,7 +12,7 @@ import {
   generateNewClientId,
   createID,
   cleanupYTextAfterTransaction,
-  UpdateEncoderV1, UpdateEncoderV2, GC, StructStore, AbstractType, AbstractStruct, YEvent, NanoBlock, NanoStore, ContentBlockRef, ContentBlockUnref, YMap, YArray, // eslint-disable-line
+  UpdateEncoderV1, UpdateEncoderV2, GC, StructStore, AbstractType, AbstractStruct, YEvent, NanoBlock, NanoStore, ContentBlockRef, ContentBlockUnref, YMap, YArray, addUnrefToBlock, updateBlockReferrer, // eslint-disable-line
 } from '../internals.js'
 
 import * as map from 'lib0/map'
@@ -543,16 +543,10 @@ const resolveBlockRefs = (storeTransaction) => {
     }
   })
   if (refsToUnref.size > 0) {
-    console.log('block refs removed', storeTransaction.blockRefsRemoved, storeTransaction.blockUnrefsAdded)
     transactInStore(storeTransaction.store, () => {
       refsToUnref.forEach(ref => {
         if (ref._item && ref._item.block) {
-          const unrefArray = /** @type {YArray<any>} */(ref._item.block.get('_unrefs', YArray))
-          unrefArray.push([new ContentBlockUnref({
-            blockId: ref.blockId,
-            refClient: ref._item.id.client,
-            refClock: ref._item.id.clock
-          })])
+          addUnrefToBlock(ref._item.block, ref)
         }
       })
     }, null, true)
@@ -590,12 +584,9 @@ const resolveBlockRefs = (storeTransaction) => {
         conflicts.push(ref)
       } else {
         const currentRef = /** @type {ContentBlockRef} */ (block._referrer.content)
-        // @ts-ignore
-        block._referrer = ref._item
+        updateBlockReferrer(block, ref, false) // Set third argument do to save current referrer as prevReferrer because it's wrong
         ref._block = block
         ref._type = block.getType()
-        currentRef._block = null
-        currentRef._type = null
         conflicts.push(currentRef)
       }
     } else if (!block._referrer) {
