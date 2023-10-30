@@ -685,7 +685,7 @@ export const typeListInsertGenericsAfter = (transaction, parent, referenceItem, 
             //   break
             default:
               if (c instanceof AbstractType) {
-                if (block.store?.autoRef && c.createRef !== false) {
+                if (c.createRef ?? block.store?.autoRef) {
                   left = new Item(createID(ownClientId, getState(structStore, ownClientId)), left, left && left.lastId, right, right && right.id, parent, null, new ContentBlockRef(c))
                 } else {
                   left = new Item(createID(ownClientId, getState(structStore, ownClientId)), left, left && left.lastId, right, right && right.id, parent, null, new ContentType(c))
