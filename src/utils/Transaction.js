@@ -538,7 +538,7 @@ const resolveBlockRefs = (storeTransaction) => {
   })
   storeTransaction.blockUnrefsAdded.forEach(unref => {
     if (unref._item && unref._item.block) {
-      const key = `${unref._item.block?.id}:${unref.refClient}:${unref.refClock}`
+      const key = `${unref._item.block?.id}:${unref.client}:${unref.clock}`
       refsToUnref.delete(key)
     }
   })
@@ -569,8 +569,7 @@ const resolveBlockRefs = (storeTransaction) => {
   storeTransaction.blockRefsRemoved.forEach(ref => {
     const block = store.getOrCreateBlock(ref.blockId, ref.blockType)
     if (block._referrer && block._referrer === ref._item) {
-      block._prevReferrer = block._referrer
-      block._referrer = null
+      updateBlockReferrer(block, null)
     }
   })
 

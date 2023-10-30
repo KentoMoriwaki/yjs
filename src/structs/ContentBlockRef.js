@@ -3,9 +3,17 @@ import { NanoBlock, Item, Transaction, UpdateDecoderV1, UpdateDecoderV2, UpdateE
 import * as error from 'lib0/error'
 
 /**
+ * @typedef {Object} ContentBlockUnrefOpts
+ * @property {string} blockId target block id
+ * @property {number} client client id of the ref item
+ * @property {number} clock clock of the ref item
+ */
+
+/**
  * @typedef {Object} ContentBlockRefOpts
  * @property {string} blockId
  * @property {import("../utils/NanoBlock.js").BlockType} blockType
+ * @property {ContentBlockUnrefOpts | null} unref
  */
 
 export class ContentBlockRef {
@@ -28,16 +36,10 @@ export class ContentBlockRef {
     this.blockType = ''
 
     /**
-     * Block if of previous referrer
-     * @type {string}
+     * Unref data
+     * @type {ContentBlockUnrefOpts | null}
      */
-    this.prevBlockId = ''
-
-    /**
-     * Item ID of previous referrer
-     * @type {ID | null}
-     */
-    this.prevItemId = null
+    this.unref = null
 
     /**
      * @type {NanoBlock | null}
@@ -77,6 +79,7 @@ export class ContentBlockRef {
     } else {
       this.blockId = opt.blockId
       this.blockType = opt.blockType
+      this.unref = opt.unref
     }
 
     /**
@@ -118,8 +121,11 @@ export class ContentBlockRef {
       }
       updateBlockReferrer(this._block, this)
       if (this._block._prevReferrer && this._block._prevReferrer.block) {
-        this.prevBlockId = this._block._prevReferrer.block?.id
-        this.prevItemId = this._block._prevReferrer.id
+        this.unref = {
+          blockId: this._block._prevReferrer.block?.id,
+          client: this._block._prevReferrer.id.client,
+          clock: this._block._prevReferrer.id.clock
+        }
       }
     }
     transaction.storeTransaction.blockRefsAdded.add(this)
@@ -130,8 +136,7 @@ export class ContentBlockRef {
    */
   delete (transaction) {
     if (this._block && this._block._referrer && this._block._referrer === this._item) {
-      this._block._prevReferrer = this._block._referrer
-      this._block._referrer = null
+      updateBlockReferrer(this._block, null)
     }
     if (transaction.storeTransaction) {
       if (transaction.storeTransaction.blockRefsAdded.has(this)) {
@@ -162,7 +167,8 @@ export class ContentBlockRef {
   copy () {
     return new ContentBlockRef({
       blockId: this.blockId,
-      blockType: this.blockType
+      blockType: this.blockType,
+      unref: this.unref
     })
   }
 
@@ -185,20 +191,13 @@ export class ContentBlockRef {
   write (encoder, offset) {
     encoder.writeString(this.blockId)
     encoder.writeString(this.blockType)
-    // encoder.writeAny(this.opts)
+    encoder.writeAny(this.unref)
   }
 
   getRef () {
     return 11
   }
 }
-
-/**
- * @typedef {Object} ContentBlockUnrefOpts
- * @property {string} blockId target block id
- * @property {number} refClient client id of the ref item
- * @property {number} refClock clock of the ref item
- */
 
 export class ContentBlockUnref {
   /**
@@ -215,13 +214,13 @@ export class ContentBlockUnref {
      * Client id of the ref item
      * @type {number}
      */
-    this.refClient = opts.refClient
+    this.client = opts.client
 
     /**
      * Clock of the ref item
      * @type {number}
      */
-    this.refClock = opts.refClock
+    this.clock = opts.clock
 
     /**
      * @type {Item | null}
@@ -252,8 +251,8 @@ export class ContentBlockUnref {
   copy () {
     return new ContentBlockUnref({
       blockId: this.blockId,
-      refClient: this.refClient,
-      refClock: this.refClock
+      client: this.client,
+      clock: this.clock
     })
   }
 
@@ -279,10 +278,10 @@ export class ContentBlockUnref {
    * @param {number} offset
    */
   write (encoder, offset) {
-    encoder.writeString(this.blockId)
-    encoder.writeLeftID({
-      client: this.refClient,
-      clock: this.refClock
+    encoder.writeAny({
+      blockId: this.blockId,
+      client: this.client,
+      clock: this.clock
     })
   }
 
@@ -312,10 +311,12 @@ function createContentBlockRefFromDecoder (decoder) {
   /** @type {import("../utils/NanoBlock.js").BlockType} */
   // @ts-ignore
   const blockType = decoder.readString()
+  const unref = decoder.readAny()
 
   return {
     blockId,
-    blockType
+    blockType,
+    unref
   }
 }
 
@@ -324,14 +325,7 @@ function createContentBlockRefFromDecoder (decoder) {
  * @return {ContentBlockUnrefOpts}
  */
 function createContentBlockUnrefFromDecoder (decoder) {
-  const blockId = decoder.readString()
-  const ref = decoder.readLeftID()
-
-  return {
-    blockId,
-    refClient: ref.client,
-    refClock: ref.clock
-  }
+  return decoder.readAny()
 }
 
 /**

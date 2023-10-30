@@ -306,8 +306,8 @@ export function addUnrefToBlock (block, ref) {
   }
   const unref = new ContentBlockUnref({
     blockId: ref.blockId,
-    refClient: ref._item.id.client,
-    refClock: ref._item.id.clock
+    client: ref._item.id.client,
+    clock: ref._item.id.clock
   })
   unrefArray.push([unref])
 }
