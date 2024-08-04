@@ -80,20 +80,20 @@ export class NanoStore extends Observable {
 
   /**
    * @private
-   * @param {string} rootBlockName
+   * @param {string} name
    * @param {import("./NanoBlock.js").BlockType} blockType
    * @returns {NanoBlock}
    */
-  setRootBlock (rootBlockName, blockType) {
-    let block = this.roots.get(rootBlockName)
+  setRootBlock (name, blockType) {
+    let block = this.roots.get(name)
     if (!block) {
       block = new NanoBlock({
         store: this,
         isRoot: true,
-        rootName: rootBlockName,
+        name,
         type: blockType
       })
-      this.roots.set(rootBlockName, block)
+      this.roots.set(name, block)
       this.blocks.set(block.id, block)
       if (this._transaction) {
         this._transaction.blocksAdded.add(block)
@@ -152,6 +152,28 @@ export class NanoStore extends Observable {
       this._transaction.blocksAdded.add(block)
     }
     return block
+  }
+
+  /**
+   * Create block
+   * @template {import("./NanoBlock.js").BlockType} T
+   * @param {T} blockType
+   * @param {string | undefined} [id]
+   * @return {import("./NanoBlock.js").TypeNameToTypeConstructor[T]} [type]
+   */
+  createBlockType (blockType, id) {
+    const block = this.createBlock(blockType, id)
+    return block.getType()
+  }
+
+  /**
+   * @template {import("./NanoBlock.js").BlockType} T
+   * @param {string} rootBlockName
+   * @param {T} blockType
+   * @returns {import("./NanoBlock.js").TypeNameToTypeConstructor[T]}
+   */
+  getOrCreateRootBlockType (rootBlockName, blockType) {
+    return this.getRootBlockOrCreate(rootBlockName, blockType).getType()
   }
 
   destroy () {

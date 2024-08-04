@@ -6,7 +6,7 @@ import * as random from 'lib0/random'
 import * as map from 'lib0/map'
 import { Observable } from 'lib0/observable'
 
-const ROOT_NAME_ID_PREFIX = '@'
+const NAME_ID_PREFIX = '@'
 
 export const generateNewClientId = random.uint32
 
@@ -26,7 +26,7 @@ const generateNewBlockId = random.uuidv4
  * @property {boolean} [gc=true] Disable garbage collection (default: gc=store.gc||true)
  * @property {function(Item):boolean} [gcFilter] Will be called before an Item is garbage collected. Return false to keep the Item.
  * @property {boolean} [isRoot] Whether this is a root block
- * @property {string | null} [rootName] Name of the root block
+ * @property {string | null} [name] You can optionally assign a name to a block
  */
 
 /**
@@ -43,7 +43,7 @@ export class NanoBlock extends Observable {
     /**
      * @type {string | null}
      */
-    this._id = opts.id ?? (opts.isRoot ? null : generateNewBlockId())
+    this._uid = opts.id ?? (opts.isRoot ? null : generateNewBlockId())
 
     /**
      * @type {BlockType}
@@ -88,7 +88,7 @@ export class NanoBlock extends Observable {
     /**
      * @type {string | null}
      */
-    this.rootName = opts.rootName ?? null
+    this.name = opts.name ?? null
 
     /**
      * @type {Transaction | null}
@@ -112,34 +112,35 @@ export class NanoBlock extends Observable {
     this._referrer = null
 
     /**
-     * Previous referrer item
-     * @type {Item & { content: ContentBlockRef } | null}
-     */
-    this._prevReferrer = null
-
-    /**
      * @type {NanoBlock | null}
      * @private
      */
     this._rootBlock = null
   }
 
-  get id () {
-    return this._id ?? `${ROOT_NAME_ID_PREFIX}${this.rootName}`
+  /**
+   * @type {string | null}
+   */
+  get uid () {
+    return this._uid
   }
 
   /**
-   * @param {string} newId
+   * @param {string} newUid
    */
-  setId (newId) {
-    if (this._id) {
+  set uid (newUid) {
+    if (this._uid) {
       console.error('Cannot set id of block which already has an id.')
       return
     }
-    this._id = newId
+    this._uid = newUid
     if (this.store) {
-      this.store.blocks.set(newId, this)
+      this.store.blocks.set(newUid, this)
     }
+  }
+
+  get id () {
+    return this.uid ?? `${NAME_ID_PREFIX}${this.name}`
   }
 
   /**
@@ -275,21 +276,15 @@ export class NanoBlock extends Observable {
  * @param {NanoBlock} block
  * @param {ContentBlockRef | null} refItem
  */
-export function updateBlockReferrer (block, refItem, updatePrev = true) {
+export function updateBlockReferrer (block, refItem) {
   if (refItem === null && block._referrer) {
     block._referrer.content._block = null
     block._referrer.content._type = null
-    if (updatePrev) {
-      block._prevReferrer = block._referrer
-    }
     block._referrer = null
   } if (refItem) {
     if (block._referrer && block._referrer !== refItem._item) {
       block._referrer.content._block = null
       block._referrer.content._type = null
-      if (updatePrev) {
-        block._prevReferrer = block._referrer
-      }
     }
     block._referrer = refItem._item
   }
@@ -311,6 +306,13 @@ export function addUnrefToBlock (block, ref) {
   })
   unrefArray.push([unref])
 }
+
+/**
+ * @typedef {{ array: YArray<any>, map: YMap<any>, text: YText, xmlElement: YXmlElement, xmlFragment: YXmlFragment, xmlText: YXmlElement }} TypeNameToTypeConstructor
+ */
+
+// Example usage:
+// const typeConstructor: TypeConstructor = YArray;
 
 /**
  * @param {BlockType} type

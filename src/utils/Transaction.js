@@ -22,6 +22,50 @@ import * as logging from 'lib0/logging'
 import { callAll } from 'lib0/function'
 
 /**
+ * StoreTransaction is a collection of (block) transactions.
+ */
+export class StoreTransaction {
+  /**
+   * @param {NanoStore} store
+   * @param {any} origin
+   * @param {boolean} local
+   */
+  constructor (store, origin, local) {
+    this.store = store
+    this.origin = origin
+    this.local = local
+    /**
+     * @type {Map<Transaction, NanoBlock>}
+     */
+    this.blockTransactions = new Map()
+    /**
+     * @type {Map<NanoBlock, YEvent<any>[]>}
+     */
+    this.rootBlockEvents = new Map()
+
+    /**
+     * @type {Set<NanoBlock>}
+     */
+    this.blocksAdded = new Set()
+
+    /**
+     * @type {Set<ContentBlockRef>}
+     */
+    this.blockRefsAdded = new Set()
+
+    /**
+     * @type {Set<ContentBlockRef>}
+     */
+    this.blockRefsRemoved = new Set()
+
+    /**
+     * @type {Set<ContentBlockUnref>}
+     */
+    this.blockUnrefsAdded = new Set()
+  }
+}
+
+/**
  * A transaction is created for every change on the Yjs model. It is possible
  * to bundle changes on the Yjs model in a single transaction to
  * minimize the number on messages sent and the number of observer calls.
@@ -524,7 +568,7 @@ const resolveBlockRefs = (storeTransaction) => {
   if (storeTransaction.blockRefsAdded.size === 0 && storeTransaction.blockRefsRemoved.size === 0) return
 
   // 削除された Ref に対して、ContentBlockUnref を作成する
-  // storeTransaction.blockUnrefAdded を作って、そこにすでに存在していないかチェックしないと、何回も Unref が作られてしまう気がする
+  // storeTransaction.blockUnrefsAdded を作って、そこにすでに存在していないかチェックしないと、何回も Unref が作られてしまう気がする
   // 他に冪等性を担保する方法はあるか？
   /**
    * @type {Map<string, ContentBlockRef>}
@@ -583,7 +627,7 @@ const resolveBlockRefs = (storeTransaction) => {
         conflicts.push(ref)
       } else {
         const currentRef = /** @type {ContentBlockRef} */ (block._referrer.content)
-        updateBlockReferrer(block, ref, false) // Set third argument do to save current referrer as prevReferrer because it's wrong
+        updateBlockReferrer(block, ref)
         ref._block = block
         ref._type = block.getType()
         conflicts.push(currentRef)
@@ -691,19 +735,10 @@ const consumeBlockTransactionObservers = (transaction) => {
         // sort events by path length so that top-level events are fired first.
         events
           .sort((event1, event2) => event1.path.length - event2.path.length)
-        // TODO: Register root observers here
-        if (type.block && type.block.isRoot && type.block.store && transaction.storeTransaction) {
-          // transaction.storeTransaction.set
-        }
+
         // We don't need to check for events.length
         // because we know it has at least one element
         callEventHandlerListeners(type._dEH, events, transaction)
-
-        // TODO: ここで root block に対してのイベントを追加する
-        if (transaction.storeTransaction && type.block) {
-          // FIXME: type.block じゃなくて、type.block.root を使うべき
-          map.setIfUndefined(transaction.storeTransaction.rootBlockEvents, type.block, () => /** @type {YEvent<any>[]} */([])).push(...events)
-        }
       }
     })
   })
@@ -722,7 +757,8 @@ const callRootObservers = (storeTransaction) => {
   })
   // Gather changed root block types
   storeTransaction.rootBlockEvents.forEach((events, block) => {
-    // TODO: Call root observers
+    const rootType = block.getType()
+    callEventHandlerListeners(rootType._rEH, events, storeTransaction)
   })
 }
 
@@ -819,60 +855,16 @@ const cleanupConsumedTransaction = (storeTransaction) => {
 function emitStoreTransactionCleanupEvents (storeTransaction) {
   storeTransaction.store.emit('afterTransactionCleanup', [storeTransaction, storeTransaction.store])
   if (storeTransaction.store._observers.has('updateV2')) {
-    /** @type {Map<string, Uint8Array>} */
+    /** @type {Map<NanoBlock, Uint8Array>} */
     const updates = new Map()
     for (const [transaction] of storeTransaction.blockTransactions) {
       const encoder = new UpdateEncoderV2()
       const hasContent = writeUpdateMessageFromTransaction(encoder, transaction)
       if (hasContent) {
         const block = transaction.block
-        updates.set(block.id, encoder.toUint8Array())
+        updates.set(block, encoder.toUint8Array())
       }
     }
     storeTransaction.store.emit('updateV2', [updates, storeTransaction.origin, storeTransaction.store, storeTransaction])
-  }
-}
-
-/**
- * StoreTransaction is a collection of (block) transactions.
- */
-export class StoreTransaction {
-  /**
-   * @param {NanoStore} store
-   * @param {any} origin
-   * @param {boolean} local
-   */
-  constructor (store, origin, local) {
-    this.store = store
-    this.origin = origin
-    this.local = local
-    /**
-     * @type {Map<Transaction, unknown>}
-     */
-    this.blockTransactions = new Map()
-    /**
-     * @type {Map<NanoBlock, YEvent<any>[]>}
-     */
-    this.rootBlockEvents = new Map()
-
-    /**
-     * @type {Set<NanoBlock>}
-     */
-    this.blocksAdded = new Set()
-
-    /**
-     * @type {Set<ContentBlockRef>}
-     */
-    this.blockRefsAdded = new Set()
-
-    /**
-     * @type {Set<ContentBlockRef>}
-     */
-    this.blockRefsRemoved = new Set()
-
-    /**
-     * @type {Set<ContentBlockUnref>}
-     */
-    this.blockUnrefsAdded = new Set()
   }
 }

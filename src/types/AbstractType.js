@@ -11,7 +11,8 @@ import {
   ContentAny,
   ContentBinary,
   getItemCleanStart,
-  ContentDoc, YText, YArray, UpdateEncoderV1, UpdateEncoderV2, Snapshot, Transaction, EventHandler, YEvent, Item, NanoBlock, ContentBlockRef, ContentBlockUnref, // eslint-disable-line
+  // @ts-ignore
+  ContentDoc, YText, YArray, UpdateEncoderV1, UpdateEncoderV2, Snapshot, Transaction, EventHandler, YEvent, Item, NanoBlock, ContentBlockRef, ContentBlockUnref, StoreTransaction, // eslint-disable-line
 } from '../internals.js'
 
 import * as map from 'lib0/map'
@@ -245,6 +246,13 @@ export const callTypeObservers = (type, transaction, event) => {
     }
     type = /** @type {AbstractType<any>} */ (type._item.parent)
   }
+  if (transaction.storeTransaction && type.block) {
+    const rootBlock = type.block.getRootBlock()
+    if (rootBlock) {
+      // @ts-ignore
+      map.setIfUndefined(transaction.storeTransaction.rootBlockEvents, rootBlock, () => []).push(event)
+    }
+  }
   callEventHandlerListeners(changedType._eH, event, transaction)
 }
 
@@ -282,6 +290,11 @@ export class AbstractType {
      * @type {EventHandler<Array<YEvent<any>>,Transaction>}
      */
     this._dEH = createEventHandler()
+    /**
+     * Root event handlers
+     * @type {EventHandler<Array<YEvent<any>>,StoreTransaction>}
+     */
+    this._rEH = createEventHandler()
     /**
      * @type {null | Array<ArraySearchMarker>}
      */
@@ -377,6 +390,15 @@ export class AbstractType {
   }
 
   /**
+   * Observe all events that are created by this type and reference types.
+   *
+   * @param {function(Array<YEvent<any>>,StoreTransaction):void} f Observer function
+   */
+  observeRoot (f) {
+    addEventHandlerListener(this._rEH, f)
+  }
+
+  /**
    * Unregister an observer function.
    *
    * @param {function(EventType,Transaction):void} f Observer function
@@ -392,6 +414,15 @@ export class AbstractType {
    */
   unobserveDeep (f) {
     removeEventHandlerListener(this._dEH, f)
+  }
+
+  /**
+   * Unregister an observer function.
+   *
+   * @param {function(Array<YEvent<any>>,StoreTransaction):void} f Observer function
+   */
+  unobserveRoot (f) {
+    removeEventHandlerListener(this._rEH, f)
   }
 
   /**
@@ -675,6 +706,10 @@ export const typeListInsertGenericsAfter = (transaction, parent, referenceItem, 
               left = new Item(createID(ownClientId, getState(structStore, ownClientId)), left, left && left.lastId, right, right && right.id, parent, null, new ContentBlockRef(/** @type {NanoBlock} */ (c)))
               left.integrate(transaction, 0)
               break
+            case ContentBlockRef:
+              left = new Item(createID(ownClientId, getState(structStore, ownClientId)), left, left && left.lastId, right, right && right.id, parent, null, /** @type {ContentBlockRef} */ (c))
+              left.integrate(transaction, 0)
+              break
             case ContentBlockUnref:
               left = new Item(createID(ownClientId, getState(structStore, ownClientId)), left, left && left.lastId, right, right && right.id, parent, null, /** @type {ContentBlockUnref} */ (c))
               left.integrate(transaction, 0)
@@ -871,7 +906,11 @@ export const typeMapSet = (transaction, parent, key, value) => {
       //   break
       default:
         if (value instanceof AbstractType) {
-          content = new ContentType(value)
+          if (value.createRef ?? block.store?.autoRef) {
+            content = new ContentBlockRef(value)
+          } else {
+            content = new ContentType(value)
+          }
         } else {
           throw new Error('Unexpected content type')
         }

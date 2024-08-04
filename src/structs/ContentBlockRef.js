@@ -13,7 +13,6 @@ import * as error from 'lib0/error'
  * @typedef {Object} ContentBlockRefOpts
  * @property {string} blockId
  * @property {import("../utils/NanoBlock.js").BlockType} blockType
- * @property {ContentBlockUnrefOpts | null} unref
  */
 
 export class ContentBlockRef {
@@ -34,12 +33,6 @@ export class ContentBlockRef {
      */
     // @ts-ignore
     this.blockType = ''
-
-    /**
-     * Unref data
-     * @type {ContentBlockUnrefOpts | null}
-     */
-    this.unref = null
 
     /**
      * @type {NanoBlock | null}
@@ -79,7 +72,6 @@ export class ContentBlockRef {
     } else {
       this.blockId = opt.blockId
       this.blockType = opt.blockType
-      this.unref = opt.unref
     }
 
     /**
@@ -120,13 +112,6 @@ export class ContentBlockRef {
         this.blockType = newBlock.blockType
       }
       updateBlockReferrer(this._block, this)
-      if (this._block._prevReferrer && this._block._prevReferrer.block) {
-        this.unref = {
-          blockId: this._block._prevReferrer.block?.id,
-          client: this._block._prevReferrer.id.client,
-          clock: this._block._prevReferrer.id.clock
-        }
-      }
     }
     transaction.storeTransaction.blockRefsAdded.add(this)
   }
@@ -167,8 +152,7 @@ export class ContentBlockRef {
   copy () {
     return new ContentBlockRef({
       blockId: this.blockId,
-      blockType: this.blockType,
-      unref: this.unref
+      blockType: this.blockType
     })
   }
 
@@ -191,7 +175,6 @@ export class ContentBlockRef {
   write (encoder, offset) {
     encoder.writeString(this.blockId)
     encoder.writeString(this.blockType)
-    encoder.writeAny(this.unref)
   }
 
   getRef () {
@@ -311,12 +294,10 @@ function createContentBlockRefFromDecoder (decoder) {
   /** @type {import("../utils/NanoBlock.js").BlockType} */
   // @ts-ignore
   const blockType = decoder.readString()
-  const unref = decoder.readAny()
 
   return {
     blockId,
-    blockType,
-    unref
+    blockType
   }
 }
 
