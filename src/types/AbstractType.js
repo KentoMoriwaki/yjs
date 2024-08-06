@@ -720,7 +720,7 @@ export const typeListInsertGenericsAfter = (transaction, parent, referenceItem, 
             //   break
             default:
               if (c instanceof AbstractType) {
-                if (c.createRef ?? block.store?.autoRef) {
+                if (c.block || (c.createRef ?? block.store?.autoRef)) {
                   left = new Item(createID(ownClientId, getState(structStore, ownClientId)), left, left && left.lastId, right, right && right.id, parent, null, new ContentBlockRef(c))
                 } else {
                   left = new Item(createID(ownClientId, getState(structStore, ownClientId)), left, left && left.lastId, right, right && right.id, parent, null, new ContentType(c))
@@ -904,9 +904,12 @@ export const typeMapSet = (transaction, parent, key, value) => {
       // case Doc:
       //   content = new ContentDoc(/** @type {Doc} */ (value))
       //   break
+      case NanoBlock:
+        content = new ContentBlockRef(/** @type {NanoBlock} */ (value))
+        break
       default:
         if (value instanceof AbstractType) {
-          if (value.createRef ?? block.store?.autoRef) {
+          if (value.block || (value.createRef ?? block.store?.autoRef)) {
             content = new ContentBlockRef(value)
           } else {
             content = new ContentType(value)

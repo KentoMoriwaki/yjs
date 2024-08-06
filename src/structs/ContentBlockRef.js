@@ -103,6 +103,7 @@ export class ContentBlockRef {
           throw new Error('Cannot create block')
         }
       }
+      // FIXME: ここには来ないはず
       if (this._block._referrer && this._block._referrer !== item) {
         // Clone block and update blockId and blockType
         const newBlock = this._block.clone()
@@ -324,3 +325,87 @@ export const readContentBlockRef = decoder => new ContentBlockRef(createContentB
  * @return {ContentBlockUnref}
  */
 export const readContentBlockUnRef = decoder => new ContentBlockUnref(createContentBlockUnrefFromDecoder(decoder))
+
+/**
+ * @param {NanoStore} store
+ * @param {ContentBlockRef} ref The ref conflicted
+ */
+export function resolveRefConflict (store, ref) {
+  if (ref._item?.deleted) return
+  // Clone conflicted item
+  // if the conflicted item is in map, delete it
+  if (ref._item && ref._item.parentSub) {
+    const key = ref._item.parentSub
+    const map = /** @type {YMap<any>} */ (ref._item.parent)
+    map.delete(key)
+    map.set(key, cloneRef(store, ref))
+  } else if (ref._item && ref._item.parentSub == null) {
+    // if the conflicted item is in array, delete it
+    const array = /** @type {YArray<any>} */ (ref._item.parent)
+    /** @type {Item | null} */
+    let item = ref._item.left
+    let index = 0
+    while (item !== null) {
+      if (!item.deleted && item.countable) {
+        index++
+      }
+      item = item.left
+    }
+    array.delete(index)
+    array.insert(index, [cloneRef(store, ref)])
+  }
+}
+
+/**
+ * @param {NanoStore} store
+ * @param {ContentBlockRef} ref
+ * @return {AbstractType<any>}
+ */
+function cloneRef (store, ref) {
+  const block = store.getBlock(ref.blockId)
+  if (!block) throw new Error('Block not found')
+  const type = block.getType()
+
+  if (type instanceof YArray) {
+    const newType = new YArray()
+    newType.createRef = true
+    let item = type._start
+    while (item != null) {
+      if (item.countable && !item.deleted) {
+        if (item.content instanceof ContentBlockRef) {
+          if (item.content._block?._referrer) {
+            newType.push([cloneRef(store, item.content)])
+          } else {
+            const c = item.content.getContent()
+            newType.push(c)
+          }
+        } else {
+          newType.push(item.content.getContent().map(c => c instanceof AbstractType ? c.clone() : c))
+        }
+      }
+      item = item.right
+    }
+    return newType
+  } else if (type instanceof YMap) {
+    const newType = new YMap()
+    newType.createRef = true
+    type._map.forEach((item, key) => {
+      if (item.countable && !item.deleted) {
+        if (item.content instanceof ContentBlockRef) {
+          if (item.content._block?._referrer) {
+            newType.set(key, cloneRef(store, item.content))
+          } else {
+            const c = item.content.getContent()
+            newType.set(key, c[c.length - 1])
+          }
+        } else {
+          const c = item.content.getContent()
+          newType.set(key, c[c.length - 1] instanceof AbstractType ? c[c.length - 1].clone() : c[c.length - 1])
+        }
+      }
+    })
+    return newType
+  } else {
+    return type.clone()
+  }
+}

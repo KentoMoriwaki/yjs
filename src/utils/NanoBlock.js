@@ -266,8 +266,9 @@ export class NanoBlock extends Observable {
       })
     }
     // Apply all items to the new block
-    const update = encodeStateAsUpdateV2(this)
-    applyUpdateV2(block, update)
+    const newType = this.getType().clone()
+    block.share.set('', newType)
+    newType._integrate(block, null)
     return block
   }
 }

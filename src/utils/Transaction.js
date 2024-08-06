@@ -12,7 +12,7 @@ import {
   generateNewClientId,
   createID,
   cleanupYTextAfterTransaction,
-  UpdateEncoderV1, UpdateEncoderV2, GC, StructStore, AbstractType, AbstractStruct, YEvent, NanoBlock, NanoStore, ContentBlockRef, ContentBlockUnref, YMap, YArray, addUnrefToBlock, updateBlockReferrer, // eslint-disable-line
+  UpdateEncoderV1, UpdateEncoderV2, GC, StructStore, AbstractType, AbstractStruct, YEvent, NanoBlock, NanoStore, ContentBlockRef, ContentBlockUnref, YMap, YArray, addUnrefToBlock, updateBlockReferrer, resolveRefConflict, // eslint-disable-line
 } from '../internals.js'
 
 import * as map from 'lib0/map'
@@ -644,33 +644,7 @@ const resolveBlockRefs = (storeTransaction) => {
     console.error('conflict block refs', conflicts)
     transactInStore(store, () => {
       for (const conflict of conflicts) {
-        // Clone conflicted item
-        const block = store.getBlock(conflict.blockId)?.clone()
-        // if the conflicted item is in map, delete it
-        if (conflict._item && conflict._item.parentSub) {
-          const key = conflict._item.parentSub
-          const map = /** @type {YMap<any>} */ (conflict._item.parent)
-          map.delete(key)
-          if (block) {
-            map.set(key, block)
-          }
-        } else if (conflict._item && conflict._item.parentSub == null) {
-          // if the conflicted item is in array, delete it
-          const array = /** @type {YArray<any>} */ (conflict._item.parent)
-          /** @type {Item | null} */
-          let item = conflict._item.left
-          let index = 0
-          while (item !== null) {
-            if (!item.deleted && item.countable) {
-              index++
-            }
-            item = item.left
-          }
-          array.delete(index)
-          if (block) {
-            array.insert(index, [block])
-          }
-        }
+        resolveRefConflict(store, conflict)
       }
     })
     // throw new Error('conflict block refs')
