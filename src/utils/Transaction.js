@@ -596,59 +596,24 @@ const resolveBlockRefs = (storeTransaction) => {
     }, null, true)
   }
 
-  /** @type {ContentBlockRef[]} */
-  const conflicts = []
-  /** @type {Map<string, ContentBlockRef>} */
-  const refs = new Map()
-  // block ごとに作成された refs を集める
-  storeTransaction.blockRefsAdded.forEach(ref => {
-    if (refs.has(ref.blockId)) {
-      conflicts.push(ref)
-    } else {
-      refs.set(ref.blockId, ref)
-    }
-  })
   const store = storeTransaction.store
-  // At first, remove referrers of removed block refs
-  storeTransaction.blockRefsRemoved.forEach(ref => {
-    const block = store.getOrCreateBlock(ref.blockId, ref.blockType)
-    if (block._referrer && block._referrer === ref._item) {
-      updateBlockReferrer(block, null)
+  storeTransaction.blockRefsAdded.forEach(ref => {
+    // ここで ref が conflict していないかをチェックする
+    if (!ref._block) {
+      // Never happedn
+      console.error("ref doesn't have block", ref)
+      return
     }
-  })
-
-  refs.forEach((ref, blockId) => {
-    const block = store.getOrCreateBlock(blockId, ref.blockType)
-    // もし block にすでに referrer がいたら、conflict にする
-    if (block._referrer && block._referrer !== ref._item) {
-      // When this transaction is local, the new referrer is always wrong.
-      // When this transaction is remote, the new referrer is always correct.
-      if (storeTransaction.local) {
-        conflicts.push(ref)
+    if (ref._item !== ref._block._referrer) {
+      if (ref._block._referrer) {
+        console.warn('Resolving conflict in transaction cleanup', ref)
+        resolveRefConflict(store, ref._block._referrer.content)
+        updateBlockReferrer(ref._block, ref)
       } else {
-        const currentRef = /** @type {ContentBlockRef} */ (block._referrer.content)
-        updateBlockReferrer(block, ref)
-        ref._block = block
-        ref._type = block.getType()
-        conflicts.push(currentRef)
+        console.error('ref._block._referrer is not set', ref) // Never happend
       }
-    } else if (!block._referrer) {
-      // @ts-ignore
-      block._referrer = ref._item
-      ref._block = block
-      ref._type = block.getType()
     }
   })
-
-  if (conflicts.length > 0) {
-    console.error('conflict block refs', conflicts)
-    transactInStore(store, () => {
-      for (const conflict of conflicts) {
-        resolveRefConflict(store, conflict)
-      }
-    })
-    // throw new Error('conflict block refs')
-  }
 }
 
 /**

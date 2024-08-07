@@ -18,7 +18,7 @@ import * as error from 'lib0/error'
 export class ContentBlockRef {
   /**
    * Initialized with either a NanoBlock or a AbstractType when manipulated by the user.
-   * @param {NanoBlock | AbstractType<any> | ContentBlockRefOpts} opt
+   * @param {AbstractType<any> | ContentBlockRefOpts} opt
    */
   constructor (opt) {
     /**
@@ -44,30 +44,16 @@ export class ContentBlockRef {
      */
     this._type = null
 
-    if (opt instanceof NanoBlock) {
-      const block = opt
-      if (block.isRoot) {
-        throw new Error('This block is already a root block.')
-      }
-      // if (block._referrer) {
-      //   throw new Error('This block is already referred.')
-      // }
-      this._block = block
-      this._type = block.getType()
-
-      this.blockId = block.id
-      this.blockType = block.blockType
-    } else if (opt instanceof AbstractType) {
+    if (opt instanceof AbstractType) {
       const type = opt
-      const block = type.block
-      if (!block && type._item?.block) {
-        throw new Error("Cannot create a referrer for a type that's a child of a type already referred.")
+      if (type.block && type.block.getType() !== type) {
+        throw new Error('You can create a ref only for the root type of a block')
       }
       this._type = type
       this.blockType = getBlockTypeFromInstance(type)
-      if (block) {
-        this._block = block
-        this.blockId = block.id
+      if (type.block) {
+        this._block = type.block
+        this.blockId = this._block.id
       }
     } else {
       this.blockId = opt.blockId
@@ -89,32 +75,41 @@ export class ContentBlockRef {
     this._item = item
     if (!transaction.storeTransaction) return
     const store = transaction.storeTransaction.store
-    const createdFromUpdate = !this._type
-    // When this ref is created from an update, the conflict should be resolve during cleanup transcation
-    if (!createdFromUpdate) {
-      if (!this._block) {
-        if (this.blockId) {
-          this._block = store.getRootBlockOrCreate(this.blockId, this.blockType)
-        } else if (this._type) {
-          const newBlock = store.createBlock(this.blockType, undefined, this._type)
-          this._block = newBlock
-          this.blockId = newBlock.id
+    transaction.storeTransaction.blockRefsAdded.add(this)
+
+    // ref の conflict や循環参照が見つかった場合、
+    // local の場合、この場で解決する.
+    // local ではない場合、ここでは解決せずに、cleanup の中で解決する（つまり次の local な transaction).
+    if (this.blockId && this.blockType) {
+      const block = store.getOrCreateBlock(this.blockId, this.blockType)
+      // conflict
+      if (block._referrer) {
+        if (transaction.local) {
+          // この item は削除されて、clone された block に対して新しい ref が作成される
+          console.warn('Resolving conflit in ContentBlockRef.integrate', this)
+          resolveRefConflict(store, this)
         } else {
-          throw new Error('Cannot create block')
+          // local じゃないので、次の local な transaction で解決する
+          // この item が優先されて、block._referrer の方が clone される
+          this._block = block
+          this._type = block.getType()
+          // referrer の設定はここでは行わない
+          // TODO: conflict していることをマークする.
         }
+      } else {
+        this._block = block
+        this._type = block.getType()
+        updateBlockReferrer(this._block, this)
       }
-      // FIXME: ここには来ないはず
-      if (this._block._referrer && this._block._referrer !== item) {
-        // Clone block and update blockId and blockType
-        const newBlock = this._block.clone()
-        this._block = newBlock
-        this._type = newBlock.getType()
-        this.blockId = newBlock.id
-        this.blockType = newBlock.blockType
-      }
+    } else if (this._type && !this._block) {
+      // block を作成する
+      this._block = store.createBlock(this.blockType, undefined, this._type)
+      this.blockId = this._block.id
       updateBlockReferrer(this._block, this)
     }
-    transaction.storeTransaction.blockRefsAdded.add(this)
+
+    // integrate されたあとは、blockId and blockType は必ず存在する
+    // _block と _type が存在しない場合は、conflict されて削除されている
   }
 
   /**
@@ -338,7 +333,7 @@ export function resolveRefConflict (store, ref) {
     const key = ref._item.parentSub
     const map = /** @type {YMap<any>} */ (ref._item.parent)
     map.delete(key)
-    map.set(key, cloneRef(store, ref))
+    map.set(key, cloneBlock(store, ref.blockId))
   } else if (ref._item && ref._item.parentSub == null) {
     // if the conflicted item is in array, delete it
     const array = /** @type {YArray<any>} */ (ref._item.parent)
@@ -352,17 +347,17 @@ export function resolveRefConflict (store, ref) {
       item = item.left
     }
     array.delete(index)
-    array.insert(index, [cloneRef(store, ref)])
+    array.insert(index, [cloneBlock(store, ref.blockId)])
   }
 }
 
 /**
  * @param {NanoStore} store
- * @param {ContentBlockRef} ref
+ * @param {string} blockId
  * @return {AbstractType<any>}
  */
-function cloneRef (store, ref) {
-  const block = store.getBlock(ref.blockId)
+function cloneBlock (store, blockId) {
+  const block = store.getBlock(blockId)
   if (!block) throw new Error('Block not found')
   const type = block.getType()
 
@@ -373,14 +368,16 @@ function cloneRef (store, ref) {
     while (item != null) {
       if (item.countable && !item.deleted) {
         if (item.content instanceof ContentBlockRef) {
-          if (item.content._block?._referrer) {
-            newType.push([cloneRef(store, item.content)])
-          } else {
-            const c = item.content.getContent()
-            newType.push(c)
-          }
+          newType.push([cloneBlock(store, item.content.blockId)])
         } else {
-          newType.push(item.content.getContent().map(c => c instanceof AbstractType ? c.clone() : c))
+          newType.push(item.content.getContent().map(c => {
+            if (c instanceof AbstractType) {
+              const cloned = c.clone()
+              cloned.createRef = false
+              return cloned
+            }
+            return c
+          }))
         }
       }
       item = item.right
@@ -392,20 +389,24 @@ function cloneRef (store, ref) {
     type._map.forEach((item, key) => {
       if (item.countable && !item.deleted) {
         if (item.content instanceof ContentBlockRef) {
-          if (item.content._block?._referrer) {
-            newType.set(key, cloneRef(store, item.content))
-          } else {
-            const c = item.content.getContent()
-            newType.set(key, c[c.length - 1])
-          }
+          newType.set(key, cloneBlock(store, item.content.blockId))
         } else {
           const c = item.content.getContent()
-          newType.set(key, c[c.length - 1] instanceof AbstractType ? c[c.length - 1].clone() : c[c.length - 1])
+          if (c[c.length - 1] instanceof AbstractType) {
+            const cloned = c[c.length - 1].clone()
+            cloned.createRef = false
+            newType.set(key, cloned)
+          } else {
+            newType.set(key, c[c.length - 1])
+          }
         }
       }
     })
     return newType
   } else {
-    return type.clone()
+    // TODO: XmlElement の attrs にも ref が設定されることがある
+    const newType = type.clone()
+    newType.createRef = true
+    return newType
   }
 }

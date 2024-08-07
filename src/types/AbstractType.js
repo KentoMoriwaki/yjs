@@ -702,10 +702,6 @@ export const typeListInsertGenericsAfter = (transaction, parent, referenceItem, 
               left = new Item(createID(ownClientId, getState(structStore, ownClientId)), left, left && left.lastId, right, right && right.id, parent, null, new ContentBinary(new Uint8Array(/** @type {Uint8Array} */ (c))))
               left.integrate(transaction, 0)
               break
-            case NanoBlock:
-              left = new Item(createID(ownClientId, getState(structStore, ownClientId)), left, left && left.lastId, right, right && right.id, parent, null, new ContentBlockRef(/** @type {NanoBlock} */ (c)))
-              left.integrate(transaction, 0)
-              break
             case ContentBlockRef:
               left = new Item(createID(ownClientId, getState(structStore, ownClientId)), left, left && left.lastId, right, right && right.id, parent, null, /** @type {ContentBlockRef} */ (c))
               left.integrate(transaction, 0)
@@ -900,12 +896,6 @@ export const typeMapSet = (transaction, parent, key, value) => {
         break
       case Uint8Array:
         content = new ContentBinary(/** @type {Uint8Array} */ (value))
-        break
-      // case Doc:
-      //   content = new ContentDoc(/** @type {Doc} */ (value))
-      //   break
-      case NanoBlock:
-        content = new ContentBlockRef(/** @type {NanoBlock} */ (value))
         break
       default:
         if (value instanceof AbstractType) {
