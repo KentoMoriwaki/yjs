@@ -12,7 +12,7 @@ import {
   generateNewClientId,
   createID,
   cleanupYTextAfterTransaction,
-  UpdateEncoderV1, UpdateEncoderV2, GC, StructStore, AbstractType, AbstractStruct, YEvent, NanoBlock, NanoStore, ContentBlockRef, ContentBlockUnref, YMap, YArray, addUnrefToBlock, updateBlockReferrer, resolveRefConflict, // eslint-disable-line
+  UpdateEncoderV1, UpdateEncoderV2, GC, StructStore, AbstractType, AbstractStruct, YEvent, NanoBlock, NanoStore, ContentBlockRef, ContentBlockUnref, YMap, YArray, addUnrefToBlock, updateBlockReferrer, resolveRefConflict, validateCircularRef, // eslint-disable-line
 } from '../internals.js'
 
 import * as map from 'lib0/map'
@@ -604,15 +604,12 @@ const resolveBlockRefs = (storeTransaction) => {
       console.error("ref doesn't have block", ref)
       return
     }
-    if (ref._item !== ref._block._referrer) {
-      if (ref._block._referrer) {
-        console.warn('Resolving conflict in transaction cleanup', ref)
-        resolveRefConflict(store, ref._block._referrer.content)
-        updateBlockReferrer(ref._block, ref)
-      } else {
-        console.error('ref._block._referrer is not set', ref) // Never happend
-      }
+    if (ref._block._referrer && ref._item !== ref._block._referrer) {
+      console.warn('Resolving conflict in transaction cleanup', ref)
+      resolveRefConflict(store, ref._block._referrer.content)
     }
+    updateBlockReferrer(ref._block, ref)
+    validateCircularRef(/** @type {Item & { content: ContentBlockRef }} */(ref._item))
   })
 }
 

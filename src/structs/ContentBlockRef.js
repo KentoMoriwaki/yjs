@@ -77,35 +77,37 @@ export class ContentBlockRef {
     const store = transaction.storeTransaction.store
     transaction.storeTransaction.blockRefsAdded.add(this)
 
-    // ref の conflict や循環参照が見つかった場合、
-    // local の場合、この場で解決する.
-    // local ではない場合、ここでは解決せずに、cleanup の中で解決する（つまり次の local な transaction).
-    if (this.blockId && this.blockType) {
-      const block = store.getOrCreateBlock(this.blockId, this.blockType)
-      // conflict
-      if (block._referrer) {
-        if (transaction.local) {
+    // ref の conflict や循環参照が見つかった場合
+    // tr.local なら、この場で解決する.
+    // tr.local でないなら、ここでは解決せずに、cleanup の中で解決する（つまり次の local な transaction).
+    if (transaction.local) {
+      if (this.blockId && this.blockType) {
+        const block = store.getOrCreateBlock(this.blockId, this.blockType)
+        // conflict
+        if (block._referrer) {
           // この item は削除されて、clone された block に対して新しい ref が作成される
           console.warn('Resolving conflit in ContentBlockRef.integrate', this)
           resolveRefConflict(store, this)
         } else {
-          // local じゃないので、次の local な transaction で解決する
-          // この item が優先されて、block._referrer の方が clone される
           this._block = block
           this._type = block.getType()
-          // referrer の設定はここでは行わない
-          // TODO: conflict していることをマークする.
+          // ここで循環参照が発生する可能性があるので解決する
+          updateBlockReferrer(this._block, this)
+          validateCircularRef(this._item)
         }
-      } else {
-        this._block = block
-        this._type = block.getType()
+      } else if (this._type && !this._block) {
+        // block を作成する
+        this._block = store.createBlock(this.blockType, undefined, this._type)
+        this.blockId = this._block.id
         updateBlockReferrer(this._block, this)
+        validateCircularRef(this._item)
       }
-    } else if (this._type && !this._block) {
-      // block を作成する
-      this._block = store.createBlock(this.blockType, undefined, this._type)
-      this.blockId = this._block.id
-      updateBlockReferrer(this._block, this)
+    } else {
+      // local でない場合は、必ず blockId と blockType が存在する
+      // またここでは block.referrer の設定も行わない
+      const block = store.getOrCreateBlock(this.blockId, this.blockType)
+      this._block = block
+      this._type = block.getType()
     }
 
     // integrate されたあとは、blockId and blockType は必ず存在する
@@ -332,8 +334,10 @@ export function resolveRefConflict (store, ref) {
   if (ref._item && ref._item.parentSub) {
     const key = ref._item.parentSub
     const map = /** @type {YMap<any>} */ (ref._item.parent)
+    // 必ず元の item を削除してから clone することで、循環参照が作られないようにする
     map.delete(key)
-    map.set(key, cloneBlock(store, ref.blockId))
+    const cloned = cloneBlock(store, ref.blockId)
+    map.set(key, cloned)
   } else if (ref._item && ref._item.parentSub == null) {
     // if the conflicted item is in array, delete it
     const array = /** @type {YArray<any>} */ (ref._item.parent)
@@ -346,8 +350,10 @@ export function resolveRefConflict (store, ref) {
       }
       item = item.left
     }
+    // 必ず元の item を削除してから clone することで、循環参照が作られないようにする
     array.delete(index)
-    array.insert(index, [cloneBlock(store, ref.blockId)])
+    const cloned = cloneBlock(store, ref.blockId)
+    array.insert(index, [cloned])
   }
 }
 
@@ -408,5 +414,45 @@ function cloneBlock (store, blockId) {
     const newType = type.clone()
     newType.createRef = true
     return newType
+  }
+}
+
+/**
+ * @private
+ * @param {Item & { content: ContentBlockRef }} item
+ */
+export function validateCircularRef (item) {
+  if (item?.deleted) return
+  const blockId = item.content.blockId
+  let found = false
+  let n = /** @type {Item | null} */(item)
+  while (n?.block) {
+    if (n.block.id === blockId) {
+      console.warn('Circular reference detected', item)
+      found = true
+      break
+    }
+    n = n.block._referrer
+  }
+  if (!found) return
+  if (item && item.parentSub) {
+    const key = item.parentSub
+    const map = /** @type {YMap<any>} */ (item.parent)
+    // 必ず元の item を削除してから clone することで、循環参照が作られないようにする
+    map.delete(key)
+  } else if (item && item.parentSub == null) {
+    // if the conflicted item is in array, delete it
+    const array = /** @type {YArray<any>} */ (item.parent)
+    /** @type {Item | null} */
+    let n = item.left
+    let index = 0
+    while (n !== null) {
+      if (!n.deleted && n.countable) {
+        index++
+      }
+      n = n.left
+    }
+    // 必ず元の item を削除してから clone することで、循環参照が作られないようにする
+    array.delete(index)
   }
 }
