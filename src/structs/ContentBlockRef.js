@@ -1,4 +1,4 @@
-import { NanoBlock, Item, Transaction, UpdateDecoderV1, UpdateDecoderV2, UpdateEncoderV1, UpdateEncoderV2, ID, StructStore, AbstractType, getBlockTypeFromInstance, updateBlockReferrer, NanoStore, YMap, YArray } from '../internals.js' // eslint-disable-line
+import { NanoBlock, Item, Transaction, UpdateDecoderV1, UpdateDecoderV2, UpdateEncoderV1, UpdateEncoderV2, ID, StructStore, AbstractType, getBlockTypeFromInstance, updateBlockReferrer, NanoStore, YMap, YArray, addUnrefToBlock } from '../internals.js' // eslint-disable-line
 
 import * as error from 'lib0/error'
 
@@ -127,6 +127,9 @@ export class ContentBlockRef {
       } else {
         transaction.storeTransaction.blockRefsRemoved.add(this)
       }
+    }
+    if (transaction.local && this._item && this._item.block) {
+      addUnrefToBlock(this._item.block, this)
     }
   }
 

@@ -35,7 +35,7 @@ export class StoreTransaction {
     this.origin = origin
     this.local = local
     /**
-     * @type {Map<Transaction, NanoBlock>}
+     * @type {Map<NanoBlock, Transaction>}
      */
     this.blockTransactions = new Map()
     /**
@@ -449,7 +449,7 @@ export const transact = (block, f, origin = null, local = true) => {
     return transactInStore(block.store, (storeTr) => {
       if (block._transaction === null) {
         block._transaction = new Transaction(block, storeTr.origin, storeTr.local)
-        storeTr.blockTransactions.set(block._transaction, block)
+        storeTr.blockTransactions.set(block, block._transaction)
         block.emit('beforeTransaction', [block._transaction, block])
       }
       return f(block._transaction)
@@ -524,7 +524,7 @@ export const transactInStore = (store, f, origin = null, local = true) => {
     if (initialCall) {
       const finishCleanup = store._transaction === transactionCleanups[0]
       // これ以降に呼ばれた変更は、新しい transaction になる
-      store._transaction.blockTransactions.forEach((_, tr) => {
+      store._transaction.blockTransactions.forEach((tr) => {
         tr.block._transaction = null
       })
       store._transaction = null
@@ -533,7 +533,7 @@ export const transactInStore = (store, f, origin = null, local = true) => {
         while (i < transactionCleanups.length) {
           const transaction = transactionCleanups[i]
 
-          transaction.blockTransactions.forEach((_, tr) => {
+          transaction.blockTransactions.forEach((tr) => {
             const ds = tr.deleteSet
             sortAndMergeDeleteSet(ds)
             tr.afterState = getStateVector(tr.block.structStore)
@@ -567,35 +567,6 @@ export const transactInStore = (store, f, origin = null, local = true) => {
 const resolveBlockRefs = (storeTransaction) => {
   if (storeTransaction.blockRefsAdded.size === 0 && storeTransaction.blockRefsRemoved.size === 0) return
 
-  // 削除された Ref に対して、ContentBlockUnref を作成する
-  // storeTransaction.blockUnrefsAdded を作って、そこにすでに存在していないかチェックしないと、何回も Unref が作られてしまう気がする
-  // 他に冪等性を担保する方法はあるか？
-  /**
-   * @type {Map<string, ContentBlockRef>}
-   */
-  const refsToUnref = new Map()
-  storeTransaction.blockRefsRemoved.forEach(ref => {
-    if (ref._item && ref._item.block) {
-      const key = `${ref._item.block.id}:${ref._item.id.client}:${ref._item.id.clock}`
-      refsToUnref.set(key, ref)
-    }
-  })
-  storeTransaction.blockUnrefsAdded.forEach(unref => {
-    if (unref._item && unref._item.block) {
-      const key = `${unref._item.block?.id}:${unref.client}:${unref.clock}`
-      refsToUnref.delete(key)
-    }
-  })
-  if (refsToUnref.size > 0) {
-    transactInStore(storeTransaction.store, () => {
-      refsToUnref.forEach(ref => {
-        if (ref._item && ref._item.block) {
-          addUnrefToBlock(ref._item.block, ref)
-        }
-      })
-    }, null, true)
-  }
-
   const store = storeTransaction.store
   storeTransaction.blockRefsAdded.forEach(ref => {
     // ここで ref が conflict していないかをチェックする
@@ -619,7 +590,7 @@ const resolveBlockRefs = (storeTransaction) => {
  * @param {StoreTransaction} storeTransaction
  */
 const callBlockTransactionsObservers = (storeTransaction) => {
-  storeTransaction.blockTransactions.forEach((_, transaction) => {
+  storeTransaction.blockTransactions.forEach((transaction) => {
     try {
       consumeBlockTransactionObservers(transaction)
     } catch (e) {
@@ -703,7 +674,7 @@ const callRootObservers = (storeTransaction) => {
  * @param {StoreTransaction} storeTransaction
  */
 const cleanupConsumedTransaction = (storeTransaction) => {
-  storeTransaction.blockTransactions.forEach((_, transaction) => {
+  storeTransaction.blockTransactions.forEach((transaction) => {
     if (transaction._needFormattingCleanup) {
       cleanupYTextAfterTransaction(transaction)
     }
@@ -793,7 +764,7 @@ function emitStoreTransactionCleanupEvents (storeTransaction) {
   if (storeTransaction.store._observers.has('updateV2')) {
     /** @type {Map<NanoBlock, Uint8Array>} */
     const updates = new Map()
-    for (const [transaction] of storeTransaction.blockTransactions) {
+    for (const transaction of storeTransaction.blockTransactions.values()) {
       const encoder = new UpdateEncoderV2()
       const hasContent = writeUpdateMessageFromTransaction(encoder, transaction)
       if (hasContent) {
