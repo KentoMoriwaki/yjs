@@ -568,6 +568,7 @@ const resolveBlockRefs = (storeTransaction) => {
   if (storeTransaction.blockRefsAdded.size === 0 && storeTransaction.blockRefsRemoved.size === 0) return
 
   const store = storeTransaction.store
+  // FIXME: Transaction で囲った方が良さそう
   storeTransaction.blockRefsAdded.forEach(ref => {
     // ここで ref が conflict していないかをチェックする
     if (!ref._block) {
