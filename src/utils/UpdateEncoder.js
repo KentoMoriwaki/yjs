@@ -9,6 +9,7 @@ import {
 export class DSEncoderV1 {
   constructor () {
     this.restEncoder = encoding.createEncoder()
+    this.refBlockIds = new Set()
   }
 
   toUint8Array () {
@@ -31,6 +32,13 @@ export class DSEncoderV1 {
    */
   writeDsLen (len) {
     encoding.writeVarUint(this.restEncoder, len)
+  }
+
+  /**
+   * @param {string} blockId
+   */
+  addRefBlockId (blockId) {
+    this.refBlockIds.add(blockId)
   }
 }
 
@@ -129,6 +137,7 @@ export class DSEncoderV2 {
   constructor () {
     this.restEncoder = encoding.createEncoder() // encodes all the rest / non-optimized
     this.dsCurrVal = 0
+    this.refBlockIds = new Set()
   }
 
   toUint8Array () {
@@ -157,6 +166,13 @@ export class DSEncoderV2 {
     }
     encoding.writeVarUint(this.restEncoder, len - 1)
     this.dsCurrVal += len
+  }
+
+  /**
+   * @param {string} blockId
+   */
+  addRefBlockId (blockId) {
+    this.refBlockIds.add(blockId)
   }
 }
 

@@ -98,7 +98,7 @@ export const writeClientsStructs = (encoder, store, _sm) => {
   // Write items with higher client ids first
   // This heavily improves the conflict algorithm.
   array.from(sm.entries()).sort((a, b) => b[0] - a[0]).forEach(([client, clock]) => {
-    writeStructs(encoder, /** @type {Array<GC|Item>} */ (store.clients.get(client)), client, clock)
+    writeStructs(encoder, /** @type {Array<GC|Item>} */(store.clients.get(client)), client, clock)
   })
 }
 
@@ -317,10 +317,10 @@ const integrateStructs = (transaction, store, clientsStructRefs) => {
           /**
            * @type {{ refs: Array<GC|Item>, i: number }}
            */
-          const structRefs = clientsStructRefs.get(/** @type {number} */ (missing)) || { refs: [], i: 0 }
+          const structRefs = clientsStructRefs.get(/** @type {number} */(missing)) || { refs: [], i: 0 }
           if (structRefs.refs.length === structRefs.i) {
             // This update message causally depends on another update message that doesn't exist yet
-            updateMissingSv(/** @type {number} */ (missing), getState(store, missing))
+            updateMissingSv(/** @type {number} */(missing), getState(store, missing))
             addStackToRestSS()
           } else {
             stackHead = structRefs.refs[structRefs.i++]
@@ -539,6 +539,39 @@ export const encodeStateAsUpdateV2 = (block, encodedTargetStateVector = new Uint
     }
   }
   return updates[0]
+}
+
+/**
+ * Write all the blocks referenced by the document as a map of updates that can be applied on the remote document.
+ *
+ * @param {NanoBlock} block
+ * @return {Map<string, Uint8Array>}
+ *
+ * @function
+ */
+export const encodeStateAsUpdateWithRefsV2 = (block) => {
+  const updates = new Map()
+  const store = block.store
+  const stack = [block]
+
+  while (stack.length > 0) {
+    const currentBlock = /** @type {NanoBlock} */(stack.pop())
+    if (updates.has(currentBlock.id)) {
+      continue
+    }
+    const encoder = new UpdateEncoderV2()
+    const update = encodeStateAsUpdateV2(currentBlock, undefined, encoder)
+    updates.set(currentBlock.id, update)
+    for (const refBlockId of encoder.refBlockIds) {
+      if (!updates.has(refBlockId)) {
+        const refBlock = store?.getBlock(refBlockId)
+        if (refBlock) {
+          stack.push(refBlock)
+        }
+      }
+    }
+  }
+  return updates
 }
 
 /**
