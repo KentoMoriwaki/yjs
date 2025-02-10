@@ -176,9 +176,7 @@ export class ContentBlockRef {
   write (encoder, offset) {
     encoder.writeString(this.blockId)
     encoder.writeString(this.blockType)
-    if (!this._item?.deleted) {
-      encoder.addRefBlockId(this.blockId)
-    }
+    encoder.addRef(this)
   }
 
   getRef () {

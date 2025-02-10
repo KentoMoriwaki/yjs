@@ -63,6 +63,7 @@ export {
   readUpdateV2,
   encodeStateAsUpdate,
   encodeStateAsUpdateV2,
+  encodeStateAsUpdateWithRefsV2,
   encodeStateVector,
   UndoManager,
   decodeSnapshot,

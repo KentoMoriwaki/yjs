@@ -6,10 +6,34 @@ import {
   ID // eslint-disable-line
 } from '../internals.js'
 
+/**
+ * @typedef AddRefFilter
+ * @type {(ref: import("../structs/ContentBlockRef.js").ContentBlockRef) => boolean}
+ */
+
+/**
+ * @typedef DSEncoderOptions
+ * @property {AddRefFilter} [addRefFilter]
+ */
+
+/**
+ * @type {AddRefFilter}
+ */
+const defaultAddRefFilter = (content) => {
+  return !content._item?.deleted
+}
+
 export class DSEncoderV1 {
-  constructor () {
+  /**
+   * @param {DSEncoderOptions} [options]
+   */
+  constructor (options = {}) {
     this.restEncoder = encoding.createEncoder()
     this.refBlockIds = new Set()
+    /**
+     * @type {AddRefFilter}
+     */
+    this.addRefFilter = options.addRefFilter ?? defaultAddRefFilter
   }
 
   toUint8Array () {
@@ -35,10 +59,12 @@ export class DSEncoderV1 {
   }
 
   /**
-   * @param {string} blockId
+   * @param {import("../structs/ContentBlockRef.js").ContentBlockRef} ref
    */
-  addRefBlockId (blockId) {
-    this.refBlockIds.add(blockId)
+  addRef (ref) {
+    if (this.addRefFilter(ref)) {
+      this.refBlockIds.add(ref.blockId)
+    }
   }
 }
 
@@ -134,10 +160,17 @@ export class UpdateEncoderV1 extends DSEncoderV1 {
 }
 
 export class DSEncoderV2 {
-  constructor () {
+  /**
+   * @param {DSEncoderOptions} [options]
+   */
+  constructor (options = {}) {
     this.restEncoder = encoding.createEncoder() // encodes all the rest / non-optimized
     this.dsCurrVal = 0
     this.refBlockIds = new Set()
+    /**
+     * @type {AddRefFilter}
+     */
+    this.addRefFilter = options.addRefFilter || defaultAddRefFilter
   }
 
   toUint8Array () {
@@ -169,16 +202,22 @@ export class DSEncoderV2 {
   }
 
   /**
-   * @param {string} blockId
+   * @param {import("../structs/ContentBlockRef.js").ContentBlockRef} ref
+   * @return {void}
    */
-  addRefBlockId (blockId) {
-    this.refBlockIds.add(blockId)
+  addRef (ref) {
+    if (this.addRefFilter(ref)) {
+      this.refBlockIds.add(ref.blockId)
+    }
   }
 }
 
 export class UpdateEncoderV2 extends DSEncoderV2 {
-  constructor () {
-    super()
+  /**
+   * @param {DSEncoderOptions} [options]
+   */
+  constructor (options = {}) {
+    super(options)
     /**
      * @type {Map<string,number>}
      */
